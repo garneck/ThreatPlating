@@ -1,0 +1,15 @@
+## Interface: 20506
+## Title: Threat Plating
+## Notes: Shows your threat lead or deficit on enemy NPC nameplates.
+## Author: Threat Plating contributors
+## Version: 0.2.1
+## X-Category: Combat
+## X-Game-Version: TBC Anniversary
+## SavedVariables: ThreatPlatingDB
+## AddonCompartmentFunc: ThreatPlating_OnAddonCompartmentClick
+## IconTexture: Interface\Icons\Ability_Warrior_Charge
+
+Init.lua
+Threat.lua
+Nameplates.lua
+Config.lua
