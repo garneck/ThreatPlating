@@ -112,3 +112,17 @@ formatting, anchoring, or configuration requires in-game validation; local Lua t
 simulate Blizzard frame pooling, mouse-driven movement, or unit-token availability.
 
 For user-facing behavior changes, update `README.md`, `CHANGELOG.md`, and the TOC version together.
+
+## Local deployment after push
+
+Use the project wrapper for every push from this checkout:
+
+```powershell
+.\tools\push.ps1
+```
+
+The wrapper pushes the current branch and, only after the remote branch matches the pushed commit,
+replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directory. It installs the
+TOC and four runtime Lua files from the pushed commit, so uncommitted work is never deployed by a
+push. If a push is performed without the wrapper, immediately run `.\tools\install.ps1 -Revision
+HEAD`.

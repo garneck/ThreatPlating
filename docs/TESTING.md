@@ -2,7 +2,7 @@
 
 ## Fast smoke test
 
-1. Install the checkout as `Interface\AddOns\ThreatPlating`.
+1. Run `.\tools\install.ps1` to replace `Interface\AddOns\ThreatPlating` with the current checkout.
 2. Enable Lua errors with `/console scriptErrors 1`.
 3. Reload with `/reload`.
 4. Turn on enemy nameplates.
@@ -10,6 +10,9 @@
 
 Expected: every eligible visible NPC plate gets a green `+12.3k` badge to the right of its health
 bar for eight seconds. Friendly NPCs, players, and player-controlled pets do not get a badge.
+
+`.\tools\push.ps1` is the normal push command for this checkout. After a successful push, it calls
+the installer with the pushed revision so the game never receives uncommitted files.
 
 ## Configurator
 
