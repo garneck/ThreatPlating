@@ -75,6 +75,9 @@ function Frame:Hide()
 	if wasShown and self.scripts.OnHide then
 		self.scripts.OnHide(self)
 	end
+	if wasShown and self.hooks.OnHide then
+		self.hooks.OnHide(self)
+	end
 end
 
 function Frame:HookScript(scriptName, callback)
@@ -218,6 +221,8 @@ local units = {
 }
 local threat = {}
 local now = 100
+local nameplateScanCount = 0
+local threatQueryCount = 0
 
 function CreateFrame(_, _, parent)
 	local frame = setmetatable({
@@ -240,6 +245,7 @@ function C_NamePlate.GetNamePlateForUnit(unit)
 end
 
 function C_NamePlate.GetNamePlates()
+	nameplateScanCount = nameplateScanCount + 1
 	local visible = {}
 	for _, plate in pairs(plates) do
 		visible[#visible + 1] = plate
@@ -272,6 +278,7 @@ function UnitCanAttack(_, unit)
 end
 
 function UnitDetailedThreatSituation(source, enemy)
+	threatQueryCount = threatQueryCount + 1
 	local result = threat[source .. ":" .. enemy]
 	if not result then
 		return nil
@@ -316,11 +323,29 @@ UIParent = setmetatable({
 	width = 1920,
 }, Frame)
 
+ThreatPlatingDB = {
+	badgeHeight = 14,
+	badgeWidth = -100,
+	enabled = "invalid",
+	fontSize = 32,
+	offsetX = math.huge - math.huge,
+	offsetY = math.huge,
+	windowHeight = false,
+}
+
 local addon = {}
 assert(loadfile("Init.lua"))("ThreatPlating", addon)
 assert(loadfile("Threat.lua"))("ThreatPlating", addon)
 assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
+
+assert(addon.version == "0.2.2", "runtime version should match the release")
+assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
+assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
+assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")
+assert(addon.db.badgeWidth == 36, "finite saved dimensions should be clamped")
+assert(addon.db.badgeHeight == 36, "saved badge height should fit the font")
+assert(addon.db.windowHeight == 570, "invalid saved dimensions should use defaults")
 
 local function NewPlate(unit)
 	local plate = CreateFrame("Frame")
@@ -356,16 +381,58 @@ Update(0.20)
 assert(plate.ThreatPlatingOverlay.shown, "leader overlay should be shown")
 assert(plate.ThreatPlatingOverlay.text.text == "+200", "leader overlay should show +200")
 
+threat["player:nameplate1"] = { true, 3, 50, 50, 50000 }
+Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
+Update(0.05)
+assert(
+	plate.ThreatPlatingOverlay.text.text == "-500",
+	"tanking state must not override a higher inferred raw threat"
+)
+
+local scansBeforeThreatEvent = nameplateScanCount
 threat["player:nameplate1"] = { false, 1, 50, 50, 50000 }
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 Update(0.05)
 
 assert(plate.ThreatPlatingOverlay.shown, "deficit overlay should remain shown")
 assert(plate.ThreatPlatingOverlay.text.text == "-500", "deficit overlay should show -500")
+assert(nameplateScanCount == scansBeforeThreatEvent, "event refresh should not perform a fallback scan")
+
+for _ = 1, 3 do
+	Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+	Update(0.05)
+end
+assert(
+	nameplateScanCount == scansBeforeThreatEvent + 1,
+	"continuous threat events must not starve the fallback scan"
+)
 
 Dispatch("NAME_PLATE_UNIT_REMOVED", "nameplate1")
 assert(not plate.ThreatPlatingOverlay.shown, "removed plate overlay should be hidden")
 assert(plate.ThreatPlatingOverlay.unit == nil, "removed plate should release its unit token")
+plates.nameplate1 = nil
+units.nameplate1 = nil
+
+units.nameplate1 = true
+local stalePlate = NewPlate("nameplate1")
+Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate1")
+Update(0.05)
+assert(stalePlate.ThreatPlatingOverlay.shown, "newly added replacement candidate should update")
+
+local replacementPlate = NewPlate("nameplate1")
+Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
+Update(0.05)
+assert(not stalePlate.ThreatPlatingOverlay.shown, "a stale pooled plate should hide before the next poll")
+
+Update(0.10)
+assert(replacementPlate.ThreatPlatingOverlay.shown, "the fallback scan should attach to a replacement plate")
+assert(stalePlate.ThreatPlatingOverlay.unit == nil, "a replaced pooled plate should release its unit token")
+
+plates.nameplate1 = nil
+units.nameplate1 = nil
+Update(0.20)
+assert(not replacementPlate.ThreatPlatingOverlay.shown, "the fallback scan should prune a missing plate")
+assert(replacementPlate.ThreatPlatingOverlay.unit == nil, "a pruned plate should release its unit token")
 
 units.nameplate2 = true
 local playerPlate = NewPlate("nameplate2")
@@ -376,8 +443,22 @@ assert(playerPlate.ThreatPlatingOverlay == nil, "player-controlled plates should
 addon.db.offsetX = 99
 addon:ResetBadgeSettings()
 assert(addon.db.offsetX == 6, "reset should restore the default badge offset")
+
+units.nameplate1 = true
+local disabledPlate = NewPlate("nameplate1")
+Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate1")
+Update(0.05)
+assert(disabledPlate.ThreatPlatingOverlay.shown, "enabled addon should update a newly visible plate")
+
 addon:SetEnabled(false)
 assert(addon.db.enabled == false, "disabled state should be saved")
+local scansWhileDisabled = nameplateScanCount
+local queriesWhileDisabled = threatQueryCount
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.50)
+assert(nameplateScanCount == scansWhileDisabled, "disabled addon should not scan nameplates")
+assert(threatQueryCount == queriesWhileDisabled, "disabled addon should not query threat")
+
 addon:SetEnabled(true)
 assert(addon.db.enabled == true, "enabled state should be saved")
 

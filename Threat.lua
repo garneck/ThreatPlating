@@ -7,8 +7,15 @@ local RAW_THREAT_SCALE = 0.01
 local LEADER_PERCENT_EPSILON = 0.5
 local THREAT_EPSILON = 0.005
 
+local function IsFiniteNumber(value)
+	return type(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+end
+
 local function NormalizeRawThreat(rawThreat)
-	if type(rawThreat) ~= "number" or rawThreat <= 0 then
+	if not IsFiniteNumber(rawThreat) or rawThreat <= 0 then
 		return 0
 	end
 
@@ -29,7 +36,7 @@ local function AddCandidate(leader, runnerUp, candidate)
 end
 
 function Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage)
-	if type(playerRawThreat) ~= "number" or playerRawThreat <= 0 then
+	if not IsFiniteNumber(playerRawThreat) or playerRawThreat <= 0 then
 		return true
 	end
 
@@ -37,7 +44,7 @@ function Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage)
 		return true
 	end
 
-	if type(rawPercentage) ~= "number" or rawPercentage <= 0 then
+	if not IsFiniteNumber(rawPercentage) or rawPercentage <= 0 then
 		return true
 	end
 
@@ -46,7 +53,7 @@ function Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage)
 	return rawPercentage >= (100 - LEADER_PERCENT_EPSILON)
 end
 
-function Threat.CalculateDelta(playerRawThreat, isTanking, rawPercentage, contenderRawThreats)
+function Threat.CalculateDelta(playerRawThreat, rawPercentage, contenderRawThreats)
 	local playerThreat = NormalizeRawThreat(playerRawThreat)
 	local leader = playerThreat
 	local runnerUp = 0
@@ -56,11 +63,11 @@ function Threat.CalculateDelta(playerRawThreat, isTanking, rawPercentage, conten
 		leader, runnerUp = AddCandidate(leader, runnerUp, contenderThreat)
 	end
 
-	-- When the player is below the lead, rawPercentage lets us infer the
-	-- current leader even if that actor has no group unit token.
-	if not isTanking
-		and playerThreat > 0
-		and type(rawPercentage) == "number"
+	-- rawPercentage lets us infer the reference actor even if that actor has
+	-- no group unit token. isTanking describes aggro, not necessarily the
+	-- highest raw threat during taunts and fixates.
+	if playerThreat > 0
+		and IsFiniteNumber(rawPercentage)
 		and rawPercentage > 0
 	then
 		local inferredReferenceThreat = playerThreat * 100 / rawPercentage
@@ -82,20 +89,24 @@ end
 
 local function FormatMagnitude(amount)
 	amount = math.abs(amount)
-
-	if amount >= 1000000 then
-		return (string.format("%.1fm", amount / 1000000):gsub("%.0m$", "m"))
+	local roundedAmount = math.floor(amount + 0.5)
+	if amount > 0 and roundedAmount == 0 then
+		roundedAmount = 1
 	end
 
-	if amount >= 1000 then
-		return (string.format("%.1fk", amount / 1000):gsub("%.0k$", "k"))
+	if roundedAmount >= 999950 then
+		return (string.format("%.1fm", roundedAmount / 1000000):gsub("%.0m$", "m"))
 	end
 
-	return tostring(math.floor(amount + 0.5))
+	if roundedAmount >= 1000 then
+		return (string.format("%.1fk", roundedAmount / 1000):gsub("%.0k$", "k"))
+	end
+
+	return tostring(roundedAmount)
 end
 
 function Threat.FormatDelta(delta, isLeader)
-	if type(delta) ~= "number" then
+	if not IsFiniteNumber(delta) then
 		return nil
 	end
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.2 - 2026-07-29
+
+- Keep the 0.20-second fallback scan independent from event refreshes so sustained threat events
+  cannot starve nameplate reconciliation.
+- Verify every overlay against the API's current unit-to-nameplate mapping and clean up missed
+  removal events or recycled plates.
+- Stop nameplate scans and threat queries while the addon is disabled.
+- Preserve raw-threat semantics during taunts and fixates by using valid reference percentages even
+  while the player has aggro.
+- Reject non-finite saved settings and threat values, keep the restored badge tall enough for its
+  font, and improve compact rounding at sub-unit, `1k`, and `1m` boundaries.
+- Clarify both the fallback poll and minimum event-refresh interval in `/threatplating status`.
+- Expand mocked lifecycle coverage for event cadence, pooled frames, missed removals, disabled mode,
+  and invalid saved variables.
+
 ## 0.2.1 - 2026-07-29
 
 - Prevent the draggable preview badge from overlapping configurator controls.

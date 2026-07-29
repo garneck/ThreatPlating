@@ -1,8 +1,9 @@
 local addonName, addon = ...
 
 addon.name = addonName
-addon.version = "0.2.1"
+addon.version = "0.2.2"
 addon.updateInterval = 0.20
+addon.eventRefreshDelay = 0.05
 addon.testModeUntil = 0
 addon.configPreviewActive = false
 addon.layoutRevision = 1
@@ -41,9 +42,18 @@ local function Clamp(value, minimum, maximum)
 	return math.max(minimum, math.min(maximum, value))
 end
 
+local function IsFiniteNumber(value)
+	return type(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+end
+
 local function CopyDefaults(target)
 	for key, value in pairs(addon.defaults) do
-		if type(target[key]) ~= type(value) then
+		if type(target[key]) ~= type(value)
+			or (type(value) == "number" and not IsFiniteNumber(target[key]))
+		then
 			target[key] = value
 		end
 	end
@@ -63,6 +73,7 @@ ThreatPlatingDB.offsetY = Clamp(ThreatPlatingDB.offsetY, -300, 300)
 ThreatPlatingDB.badgeWidth = Clamp(ThreatPlatingDB.badgeWidth, 36, 160)
 ThreatPlatingDB.badgeHeight = Clamp(ThreatPlatingDB.badgeHeight, 14, 64)
 ThreatPlatingDB.fontSize = Clamp(ThreatPlatingDB.fontSize, 8, 32)
+ThreatPlatingDB.badgeHeight = math.max(ThreatPlatingDB.badgeHeight, ThreatPlatingDB.fontSize + 4)
 ThreatPlatingDB.windowWidth = Clamp(ThreatPlatingDB.windowWidth, 620, 900)
 ThreatPlatingDB.windowHeight = Clamp(ThreatPlatingDB.windowHeight, 540, 720)
 ThreatPlatingDB.windowOffsetX = Clamp(ThreatPlatingDB.windowOffsetX, -2000, 2000)
@@ -134,7 +145,12 @@ SlashCmdList.THREATPLATING = function(message)
 		Print("showing sample counters on eligible visible nameplates for 8 seconds.")
 	elseif command == "status" then
 		local state = addon.enabled and "enabled" or "disabled"
-		Print(state .. "; update interval " .. addon.updateInterval .. " seconds.")
+		Print(string.format(
+			"%s; %.2fs fallback poll; %.2fs minimum event refresh.",
+			state,
+			addon.updateInterval,
+			addon.eventRefreshDelay
+		))
 	elseif command == "reset" then
 		addon:ResetBadgeSettings()
 		Print("badge layout reset.")

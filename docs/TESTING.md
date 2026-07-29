@@ -53,6 +53,23 @@ Expected:
 - No stale badge after a plate disappears or is recycled.
 - Your pet is treated as a competing actor, not added to your threat.
 
+## Lifecycle and event stress
+
+1. Keep several enemies in combat long enough to generate continuous threat events.
+2. Rapidly move them into and out of nameplate range while tab-targeting.
+3. During a taunt swap or fixate, compare the badge against the actors' raw threat values rather
+   than current aggro ownership.
+4. Disable the addon for at least ten seconds during combat, then enable it again.
+
+Expected:
+
+- Newly visible plates appear and removed plates clear within roughly 0.25 seconds even while
+  threat events are continuous.
+- Recycled plates never retain another unit's badge.
+- Current aggro does not produce a green badge when another observed or inferred actor has higher
+  raw threat.
+- Disabling immediately hides every badge; enabling restores eligible plates without a reload.
+
 ## Five-player dungeon
 
 Cover these cases on multiple simultaneous enemies:

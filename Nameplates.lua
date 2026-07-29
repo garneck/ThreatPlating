@@ -1,7 +1,7 @@
 local _, addon = ...
 
 local POLL_INTERVAL = addon.updateInterval
-local EVENT_REFRESH_DELAY = 0.05
+local EVENT_REFRESH_DELAY = addon.eventRefreshDelay
 local BACKDROP = {
 	bgFile = "Interface\\Buttons\\WHITE8X8",
 	edgeFile = "Interface\\Buttons\\WHITE8X8",
@@ -11,8 +11,10 @@ local BACKDROP = {
 local activeNameplates = {}
 local threatSources = {}
 local EMPTY_THREATS = {}
-local elapsedSinceUpdate = 0
+local elapsedSincePoll = 0
+local elapsedSinceRefresh = 0
 local refreshRequested = true
+local scanRevision = 0
 local eventFrame = CreateFrame("Frame")
 
 local function IsEligibleUnit(unit)
@@ -149,6 +151,18 @@ local function DisplayValue(record, value, isLeader)
 	overlay:Show()
 end
 
+local function ReleaseNameplate(unit, record)
+	if not record or activeNameplates[unit] ~= record then
+		return
+	end
+
+	activeNameplates[unit] = nil
+	if record.overlay.unit == unit then
+		record.overlay.unit = nil
+		record.overlay:Hide()
+	end
+end
+
 local function QueryThreat(sourceUnit, enemyUnit)
 	local ok, isTanking, status, _, rawPercentage, rawThreat =
 		pcall(UnitDetailedThreatSituation, sourceUnit, enemyUnit)
@@ -199,6 +213,7 @@ local function UpdateNameplate(unit, record)
 	if not addon.enabled
 		or record.overlay.unit ~= unit
 		or not record.nameplate:IsShown()
+		or C_NamePlate.GetNamePlateForUnit(unit) ~= record.nameplate
 		or not IsEligibleUnit(unit)
 	then
 		record.overlay:Hide()
@@ -219,7 +234,6 @@ local function UpdateNameplate(unit, record)
 
 	local delta, isLeader = addon.Threat.CalculateDelta(
 		playerRawThreat,
-		isTanking,
 		rawPercentage,
 		contenderRawThreats
 	)
@@ -276,41 +290,47 @@ local function AddNameplate(unit)
 		and existingRecord.nameplate == nameplate
 		and overlay.unit == unit
 	then
-		return
+		return existingRecord
+	end
+
+	if existingRecord then
+		ReleaseNameplate(unit, existingRecord)
 	end
 
 	if overlay.unit and overlay.unit ~= unit then
-		activeNameplates[overlay.unit] = nil
+		local previousUnit = overlay.unit
+		local previousRecord = activeNameplates[previousUnit]
+		if previousRecord and previousRecord.overlay == overlay then
+			ReleaseNameplate(previousUnit, previousRecord)
+		else
+			overlay.unit = nil
+			overlay:Hide()
+		end
 	end
 
 	overlay.unit = unit
 	overlay:Hide()
 
-	activeNameplates[unit] = {
+	local record = {
 		nameplate = nameplate,
 		overlay = overlay,
 	}
+	activeNameplates[unit] = record
 	refreshRequested = true
+	return record
 end
 
 local function RemoveNameplate(unit)
 	local record = activeNameplates[unit]
-	if not record then
-		return
-	end
-
-	if record.overlay.unit == unit then
-		record.overlay.unit = nil
-		record.overlay:Hide()
-	end
-
-	activeNameplates[unit] = nil
+	ReleaseNameplate(unit, record)
 end
 
 function addon:ScanVisibleNameplates()
 	if not self.enabled then
 		return
 	end
+
+	scanRevision = scanRevision + 1
 
 	for _, nameplate in ipairs(C_NamePlate.GetNamePlates()) do
 		local unit = nameplate.namePlateUnitToken
@@ -320,7 +340,16 @@ function addon:ScanVisibleNameplates()
 		end
 
 		if unit then
-			AddNameplate(unit)
+			local record = AddNameplate(unit)
+			if record then
+				record.scanRevision = scanRevision
+			end
+		end
+	end
+
+	for unit, record in pairs(activeNameplates) do
+		if record.scanRevision ~= scanRevision then
+			ReleaseNameplate(unit, record)
 		end
 	end
 end
@@ -338,8 +367,11 @@ function addon.HideAllNameplates()
 end
 
 function addon.GetReferenceHealthBarSize()
-	for _, record in pairs(activeNameplates) do
-		if record.nameplate:IsShown() then
+	for unit, record in pairs(activeNameplates) do
+		if record.overlay.unit == unit
+			and record.nameplate:IsShown()
+			and C_NamePlate.GetNamePlateForUnit(unit) == record.nameplate
+		then
 			local anchor = GetHealthBarAnchor(record.nameplate)
 			local width = anchor and anchor:GetWidth()
 			local height = anchor and anchor:GetHeight()
@@ -387,16 +419,28 @@ eventFrame:SetScript("OnEvent", function(_, event, unit)
 end)
 
 eventFrame:SetScript("OnUpdate", function(_, elapsed)
-	elapsedSinceUpdate = elapsedSinceUpdate + elapsed
+	if not addon.enabled then
+		elapsedSincePoll = 0
+		elapsedSinceRefresh = 0
+		refreshRequested = false
+		return
+	end
 
-	local dueForPoll = elapsedSinceUpdate >= POLL_INTERVAL
-	local dueForEventRefresh = refreshRequested and elapsedSinceUpdate >= EVENT_REFRESH_DELAY
+	elapsedSincePoll = elapsedSincePoll + elapsed
+	elapsedSinceRefresh = elapsedSinceRefresh + elapsed
+
+	local dueForPoll = elapsedSincePoll >= POLL_INTERVAL
+	local dueForEventRefresh = refreshRequested and elapsedSinceRefresh >= EVENT_REFRESH_DELAY
 	if not dueForPoll and not dueForEventRefresh then
 		return
 	end
 
-	elapsedSinceUpdate = 0
-	addon:ScanVisibleNameplates()
+	if dueForPoll then
+		elapsedSincePoll = 0
+		addon:ScanVisibleNameplates()
+	end
+
+	elapsedSinceRefresh = 0
 	addon.UpdateAllNameplates()
 	refreshRequested = false
 end)
