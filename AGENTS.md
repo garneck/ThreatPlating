@@ -126,3 +126,9 @@ replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directo
 TOC and four runtime Lua files from the pushed commit, so uncommitted work is never deployed by a
 push. If a push is performed without the wrapper, immediately run `.\tools\install.ps1 -Revision
 HEAD`.
+
+## Publishing
+
+- Commit and push completed work directly to `main`.
+- Do not create feature branches or pull requests.
+- Use `.\tools\push.ps1` for the push so the exact `main` commit is installed into WoW afterward.

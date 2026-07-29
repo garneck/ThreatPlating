@@ -19,7 +19,7 @@ function Get-MetadataVersion($path, $pattern, $label) {
 Push-Location $projectRoot
 try {
 	$runtimeVersion = Get-MetadataVersion "Init.lua" 'addon\.version = "([^"]+)"' "runtime"
-	$tocVersion = Get-MetadataVersion "ThreatPlating.toc" '(?m)^## Version: ([^\r\n]+)$' "TOC"
+	$tocVersion = Get-MetadataVersion "ThreatPlating.toc" '(?m)^## Version: ([^\r\n]+)\r?$' "TOC"
 	if ($runtimeVersion -ne $tocVersion) {
 		throw "Version mismatch: Init.lua is $runtimeVersion but ThreatPlating.toc is $tocVersion."
 	}
