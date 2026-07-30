@@ -12,33 +12,7 @@ local UnitExists = UnitExists
 local UnitIsPlayer = UnitIsPlayer
 local UnitIsUnit = UnitIsUnit
 local UnitPlayerControlled = UnitPlayerControlled
-local BACKDROP = {
-	bgFile = "Interface\\Buttons\\WHITE8X8",
-	edgeFile = "Interface\\Buttons\\WHITE8X8",
-	edgeSize = 1,
-}
-local FONT_OBJECTS = {
-	combat = "NumberFontNormal",
-	nameplate = "SystemFont_NamePlate_Outlined",
-	ui = "GameFontNormal",
-}
-local PALETTES = {
-	blue = {
-		safe = { 0, 0.447, 0.698 },
-		danger = { 0.835, 0.369, 0 },
-		warning = { 0.941, 0.894, 0.259 },
-	},
-	cyan = {
-		safe = { 0, 0.85, 0.85 },
-		danger = { 1, 0.25, 0.75 },
-		warning = { 1, 0.80, 0 },
-	},
-	default = {
-		safe = { 0.35, 1, 0.35 },
-		danger = { 1, 0.32, 0.26 },
-		warning = { 1, 0.62, 0.12 },
-	},
-}
+local BACKDROP = addon.BACKDROP
 
 local activeNameplates = {}
 local threatSources = {}
@@ -158,17 +132,11 @@ local function GetUnitFrame(nameplate)
 	return nameplate and (nameplate.UnitFrame or nameplate.unitFrame)
 end
 
-local function GetHealthBarAnchor(nameplate)
-	local unitFrame = GetUnitFrame(nameplate)
+local function GetLegacyHealthBar(unitFrame, nameplate)
 	if unitFrame then
-		if unitFrame.HealthBarsContainer then
-			return unitFrame.HealthBarsContainer
-		end
-
 		if unitFrame.healthBar then
 			return unitFrame.healthBar
 		end
-
 		if unitFrame.Health then
 			return unitFrame.Health
 		end
@@ -181,29 +149,25 @@ local function GetHealthBarAnchor(nameplate)
 	return nameplate
 end
 
+local function GetHealthBarAnchor(nameplate)
+	local unitFrame = GetUnitFrame(nameplate)
+	if unitFrame and unitFrame.HealthBarsContainer then
+		return unitFrame.HealthBarsContainer
+	end
+
+	return GetLegacyHealthBar(unitFrame, nameplate)
+end
+
 local function GetVisualHealthBar(nameplate)
 	local unitFrame = GetUnitFrame(nameplate)
-	if unitFrame then
-		if unitFrame.HealthBarsContainer
-			and unitFrame.HealthBarsContainer.healthBar
-		then
-			return unitFrame.HealthBarsContainer.healthBar
-		end
-
-		if unitFrame.healthBar then
-			return unitFrame.healthBar
-		end
-
-		if unitFrame.Health then
-			return unitFrame.Health
-		end
+	if unitFrame
+		and unitFrame.HealthBarsContainer
+		and unitFrame.HealthBarsContainer.healthBar
+	then
+		return unitFrame.HealthBarsContainer.healthBar
 	end
 
-	if nameplate and nameplate.unitFramePlater and nameplate.unitFramePlater.healthBar then
-		return nameplate.unitFramePlater.healthBar
-	end
-
-	return GetHealthBarAnchor(nameplate)
+	return GetLegacyHealthBar(unitFrame, nameplate)
 end
 
 local function ApplyAnchor(overlay, nameplate)
@@ -237,35 +201,8 @@ local function ApplyOverlayStyle(overlay)
 		return
 	end
 
-	local db = addon.db
 	overlay.styleRevision = addon.styleRevision
-	overlay.text:SetFontObject(FONT_OBJECTS[db.fontPreset] or FONT_OBJECTS.nameplate)
-	overlay.text:SetTextHeight(db.fontSize)
-
-	if db.shadow then
-		overlay.text:SetShadowColor(0, 0, 0, 1)
-		overlay.text:SetShadowOffset(1, -1)
-	else
-		overlay.text:SetShadowColor(0, 0, 0, 0)
-		overlay.text:SetShadowOffset(0, 0)
-	end
-
-	overlay:SetBackdropColor(
-		db.backgroundColor[1],
-		db.backgroundColor[2],
-		db.backgroundColor[3],
-		db.backgroundColor[4]
-	)
-	if db.borderMode == "off" then
-		overlay:SetBackdropBorderColor(0, 0, 0, 0)
-	elseif db.borderMode == "custom" then
-		overlay:SetBackdropBorderColor(
-			db.borderColor[1],
-			db.borderColor[2],
-			db.borderColor[3],
-			db.borderColor[4]
-		)
-	end
+	addon:ApplyBadgeStyle(overlay, overlay.text)
 end
 
 local function OnNameplateHide(nameplate)
@@ -279,16 +216,11 @@ local function CreateOverlay(nameplate)
 	local overlay = CreateFrame("Frame", nil, nameplate, "BackdropTemplate")
 	overlay:SetSize(addon.db.badgeWidth, addon.db.badgeHeight)
 	overlay:SetBackdrop(BACKDROP)
-	overlay:SetBackdropBorderColor(0.15, 0.15, 0.15, 1)
 	overlay:EnableMouse(false)
 	overlay:Hide()
 
 	local text = overlay:CreateFontString(nil, "OVERLAY")
-	text:SetFontObject("SystemFont_NamePlate_Outlined")
-	text:SetTextHeight(addon.db.fontSize)
 	text:SetPoint("CENTER", overlay, "CENTER", 0, 0)
-	text:SetShadowColor(0, 0, 0, 1)
-	text:SetShadowOffset(1, -1)
 	overlay.text = text
 
 	ApplyOverlayStyle(overlay)
@@ -305,55 +237,6 @@ local function CreateOverlay(nameplate)
 		overlay = overlay,
 	}
 	return overlay
-end
-
-function addon:GetSemanticColor(isLeader, isPullThresholdWarning, isTank)
-	if isTank == nil then
-		isTank = self.playerIsTank
-	end
-
-	local semantic
-	if isPullThresholdWarning then
-		semantic = "warning"
-	elseif Threat.IsDesiredState(isTank, isLeader) then
-		semantic = "safe"
-	else
-		semantic = "danger"
-	end
-
-	local color
-	if self.db.palette == "custom" then
-		color = self.db[semantic .. "Color"]
-	else
-		local palette = PALETTES[self.db.palette] or PALETTES.default
-		color = palette[semantic]
-	end
-
-	return color[1], color[2], color[3], semantic
-end
-
-function addon:ApplyThreatColor(
-	badge,
-	text,
-	isLeader,
-	isPullThresholdWarning,
-	isTank
-)
-	local red, green, blue = self:GetSemanticColor(
-		isLeader,
-		isPullThresholdWarning,
-		isTank
-	)
-	text:SetTextColor(red, green, blue, 1)
-
-	if self.db.borderMode == "semantic" then
-		badge:SetBackdropBorderColor(red, green, blue, 1)
-	elseif self.db.borderMode == "custom" then
-		local color = self.db.borderColor
-		badge:SetBackdropBorderColor(color[1], color[2], color[3], color[4])
-	else
-		badge:SetBackdropBorderColor(0, 0, 0, 0)
-	end
 end
 
 local function DisplayValue(record, value, isLeader, isPullThresholdWarning, isTank)
@@ -387,16 +270,7 @@ local function DisplayValue(record, value, isLeader, isPullThresholdWarning, isT
 	end
 
 	if layoutChanged or styleChanged then
-		if addon.db.autoWidth then
-			overlay:SetWidth(
-				math.max(
-					addon.db.badgeWidth,
-					math.ceil(overlay.text:GetStringWidth()) + addon.db.padding * 2
-				)
-			)
-		else
-			overlay:SetWidth(addon.db.badgeWidth)
-		end
+		addon:ApplyBadgeWidth(overlay, overlay.text)
 		overlay.displayLayoutRevision = addon.layoutRevision
 		overlay.displayStyleRevision = addon.styleRevision
 	end
@@ -682,6 +556,13 @@ function addon.HideAllNameplates()
 	end
 end
 
+local function FiniteOr(value, fallback)
+	if IsFiniteNumber(value) then
+		return value
+	end
+	return fallback
+end
+
 local function ReadFontStringVisual(fontString, prefix, healthBar)
 	if not fontString
 		or not fontString.GetText
@@ -708,22 +589,10 @@ local function ReadFontStringVisual(fontString, prefix, healthBar)
 	if fontString.GetTextColor then
 		red, green, blue, alpha = fontString:GetTextColor()
 	end
-	if not IsFiniteNumber(red) then
-		red = 1
-	end
-	if not IsFiniteNumber(green) then
-		green = 1
-	end
-	if not IsFiniteNumber(blue) then
-		blue = 1
-	end
-	if not IsFiniteNumber(alpha) then
-		alpha = 1
-	end
-	referenceVisual[prefix .. "Red"] = red
-	referenceVisual[prefix .. "Green"] = green
-	referenceVisual[prefix .. "Blue"] = blue
-	referenceVisual[prefix .. "Alpha"] = alpha
+	referenceVisual[prefix .. "Red"] = FiniteOr(red, 1)
+	referenceVisual[prefix .. "Green"] = FiniteOr(green, 1)
+	referenceVisual[prefix .. "Blue"] = FiniteOr(blue, 1)
+	referenceVisual[prefix .. "Alpha"] = FiniteOr(alpha, 1)
 
 	local textX, textY = fontString:GetCenter()
 	local barX, barY = healthBar:GetCenter()
@@ -740,6 +609,53 @@ local function ReadFontStringVisual(fontString, prefix, healthBar)
 	end
 
 	return true
+end
+
+local function ReadStatusBarVisual(healthBar)
+	referenceVisual.texture = nil
+	if healthBar.GetStatusBarTexture then
+		local texture = healthBar:GetStatusBarTexture()
+		if texture and texture.GetTexture then
+			referenceVisual.texture = texture:GetTexture()
+		end
+	end
+
+	local red, green, blue, alpha = 0.72, 0.12, 0.10, 1
+	if healthBar.GetStatusBarColor then
+		red, green, blue, alpha = healthBar:GetStatusBarColor()
+	end
+	referenceVisual.red = FiniteOr(red, 0.72)
+	referenceVisual.green = FiniteOr(green, 0.12)
+	referenceVisual.blue = FiniteOr(blue, 0.10)
+	referenceVisual.alpha = FiniteOr(alpha, 1)
+
+	referenceVisual.fill = 0.70
+	if not healthBar.GetMinMaxValues or not healthBar.GetValue then
+		return
+	end
+
+	local minimum, maximum = healthBar:GetMinMaxValues()
+	local value = healthBar:GetValue()
+	if IsFiniteNumber(minimum)
+		and IsFiniteNumber(maximum)
+		and IsFiniteNumber(value)
+		and maximum > minimum
+	then
+		referenceVisual.fill = math.max(
+			0,
+			math.min(1, (value - minimum) / (maximum - minimum))
+		)
+	end
+end
+
+local function ReadHealthTextVisual(healthBar)
+	if ReadFontStringVisual(healthBar.Text, "health", healthBar) then
+		return
+	end
+	if ReadFontStringVisual(healthBar.LeftText, "health", healthBar) then
+		return
+	end
+	ReadFontStringVisual(healthBar.RightText, "health", healthBar)
 end
 
 local function PopulateReferenceVisual(record)
@@ -765,65 +681,14 @@ local function PopulateReferenceVisual(record)
 
 	referenceVisual.width = width
 	referenceVisual.height = height
-	referenceVisual.texture = nil
-	if healthBar.GetStatusBarTexture then
-		local texture = healthBar:GetStatusBarTexture()
-		if texture and texture.GetTexture then
-			referenceVisual.texture = texture:GetTexture()
-		end
-	end
-
-	referenceVisual.red = 0.72
-	referenceVisual.green = 0.12
-	referenceVisual.blue = 0.10
-	referenceVisual.alpha = 1
-	if healthBar.GetStatusBarColor then
-		referenceVisual.red,
-			referenceVisual.green,
-			referenceVisual.blue,
-			referenceVisual.alpha = healthBar:GetStatusBarColor()
-	end
-	if not IsFiniteNumber(referenceVisual.red) then
-		referenceVisual.red = 0.72
-	end
-	if not IsFiniteNumber(referenceVisual.green) then
-		referenceVisual.green = 0.12
-	end
-	if not IsFiniteNumber(referenceVisual.blue) then
-		referenceVisual.blue = 0.10
-	end
-	if not IsFiniteNumber(referenceVisual.alpha) then
-		referenceVisual.alpha = 1
-	end
-
-	referenceVisual.fill = 0.70
-	if healthBar.GetMinMaxValues and healthBar.GetValue then
-		local minimum, maximum = healthBar:GetMinMaxValues()
-		local value = healthBar:GetValue()
-		if IsFiniteNumber(minimum)
-			and IsFiniteNumber(maximum)
-			and IsFiniteNumber(value)
-			and maximum > minimum
-		then
-			referenceVisual.fill = math.max(
-				0,
-				math.min(1, (value - minimum) / (maximum - minimum))
-			)
-		end
-	end
+	ReadStatusBarVisual(healthBar)
 
 	referenceVisual.nameText = nil
 	referenceVisual.healthText = nil
 	if unitFrame then
 		ReadFontStringVisual(unitFrame.name, "name", healthBar)
 	end
-	if healthBar then
-		if not ReadFontStringVisual(healthBar.Text, "health", healthBar) then
-			if not ReadFontStringVisual(healthBar.LeftText, "health", healthBar) then
-				ReadFontStringVisual(healthBar.RightText, "health", healthBar)
-			end
-		end
-	end
+	ReadHealthTextVisual(healthBar)
 
 	return true
 end
@@ -851,15 +716,6 @@ function addon.GetReferenceNameplateVisual()
 	return nil
 end
 
-function addon.GetReferenceHealthBarSize()
-	local visual = addon.GetReferenceNameplateVisual()
-	if visual then
-		return visual.width, visual.height
-	end
-
-	return 128, 20
-end
-
 function addon.ApplyDisplaySettings(changeKind)
 	changeKind = changeKind or "all"
 	if changeKind ~= "layout" and changeKind ~= "style" then
@@ -879,14 +735,7 @@ function addon.ApplyDisplaySettings(changeKind)
 		ApplyOverlayStyle(overlay)
 
 		if overlay.displayText then
-			if addon.db.autoWidth then
-				overlay:SetWidth(math.max(
-					addon.db.badgeWidth,
-					math.ceil(overlay.text:GetStringWidth()) + addon.db.padding * 2
-				))
-			else
-				overlay:SetWidth(addon.db.badgeWidth)
-			end
+			addon:ApplyBadgeWidth(overlay, overlay.text)
 			overlay.displayLayoutRevision = addon.layoutRevision
 			overlay.displayStyleRevision = addon.styleRevision
 			addon:ApplyThreatColor(

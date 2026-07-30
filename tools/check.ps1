@@ -2,6 +2,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $addonFiles = @(
 	"Init.lua",
 	"Threat.lua",
+	"Display.lua",
 	"Nameplates.lua",
 	"Config.lua"
 )
@@ -42,6 +43,11 @@ try {
 	}
 
 	& lua tests/test_threat.lua
+	if ($LASTEXITCODE -ne 0) {
+		exit $LASTEXITCODE
+	}
+
+	& lua tests/test_database.lua
 	if ($LASTEXITCODE -ne 0) {
 		exit $LASTEXITCODE
 	}

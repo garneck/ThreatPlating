@@ -3,6 +3,8 @@ local _, addon = ...
 local db = addon.db
 local Clamp = addon.Clamp
 local Round = addon.Round
+local BACKDROP = addon.BACKDROP
+local settingDefinitions = addon.settingDefinitions
 local configWindow
 local previewPane
 local previewCanvas
@@ -33,16 +35,6 @@ local scenarioButtons = {}
 
 local WIDE_THRESHOLD = 760
 local APPLY_INTERVAL = 0.05
-local BACKDROP = {
-	bgFile = "Interface\\Buttons\\WHITE8X8",
-	edgeFile = "Interface\\Buttons\\WHITE8X8",
-	edgeSize = 1,
-}
-local FONT_OBJECTS = {
-	combat = "NumberFontNormal",
-	nameplate = "SystemFont_NamePlate_Outlined",
-	ui = "GameFontNormal",
-}
 local ANCHOR_PRESETS = {
 	{
 		label = "Top left",
@@ -273,6 +265,62 @@ local function UpdateStatus()
 	end
 end
 
+local function ApplyReferenceTextVisual(
+	label,
+	healthBar,
+	visual,
+	prefix,
+	fallbackText,
+	fallbackPoint,
+	fallbackRelativePoint,
+	fallbackOffsetX,
+	fallbackOffsetY,
+	defaultRed,
+	defaultGreen,
+	defaultBlue
+)
+	label:ClearAllPoints()
+	label:SetText(visual and visual[prefix .. "Text"] or fallbackText)
+
+	local fontPath = visual and visual[prefix .. "FontPath"]
+	if fontPath then
+		label:SetFont(
+			fontPath,
+			Clamp(visual[prefix .. "FontSize"] or 12, 6, 32),
+			visual[prefix .. "FontFlags"] or ""
+		)
+	else
+		label:SetFontObject("SystemFont_NamePlate_Outlined")
+	end
+
+	local offsetX = visual and visual[prefix .. "OffsetX"]
+	local offsetY = visual and visual[prefix .. "OffsetY"]
+	if offsetX and offsetY then
+		label:SetPoint(
+			"CENTER",
+			healthBar,
+			"CENTER",
+			Clamp(offsetX, -260, 260),
+			Clamp(offsetY, -80, 80)
+		)
+	else
+		label:SetPoint(
+			fallbackPoint,
+			healthBar,
+			fallbackRelativePoint,
+			fallbackOffsetX,
+			fallbackOffsetY
+		)
+	end
+
+	label:SetTextColor(
+		visual and visual[prefix .. "Red"] or defaultRed,
+		visual and visual[prefix .. "Green"] or defaultGreen,
+		visual and visual[prefix .. "Blue"] or defaultBlue,
+		visual and visual[prefix .. "Alpha"] or 1
+	)
+end
+
 local function ApplyPreviewVisuals()
 	if not previewBadge then
 		UpdateStatus()
@@ -283,16 +331,8 @@ local function ApplyPreviewVisuals()
 	applyingPreview = true
 	local isTank, isLeader, isWarning = GetScenario()
 	local sampleText = isLeader and "+12.3k" or "-12.3k"
-	previewBadgeText:SetFontObject(FONT_OBJECTS[db.fontPreset] or FONT_OBJECTS.nameplate)
-	previewBadgeText:SetTextHeight(db.fontSize)
 	previewBadgeText:SetText(sampleText)
-	if db.shadow then
-		previewBadgeText:SetShadowColor(0, 0, 0, 1)
-		previewBadgeText:SetShadowOffset(1, -1)
-	else
-		previewBadgeText:SetShadowColor(0, 0, 0, 0)
-		previewBadgeText:SetShadowOffset(0, 0)
-	end
+	addon:ApplyBadgeStyle(previewBadge, previewBadgeText)
 
 	local visual = addon.GetReferenceNameplateVisual()
 	local referenceWidth = visual and visual.width or 128
@@ -312,82 +352,40 @@ local function ApplyPreviewVisuals()
 	previewHealthBar:SetMinMaxValues(0, 1)
 	previewHealthBar:SetValue(visual and visual.fill or 0.70)
 
-	previewUnitName:ClearAllPoints()
-	previewUnitName:SetText(visual and visual.nameText or "Enemy Nameplate")
-	if visual and visual.nameFontPath then
-		previewUnitName:SetFont(
-			visual.nameFontPath,
-			Clamp(visual.nameFontSize or 12, 6, 32),
-			visual.nameFontFlags or ""
-		)
-	else
-		previewUnitName:SetFontObject("SystemFont_NamePlate_Outlined")
-	end
-	if visual and visual.nameOffsetX and visual.nameOffsetY then
-		previewUnitName:SetPoint(
-			"CENTER",
-			previewHealthBar,
-			"CENTER",
-			Clamp(visual.nameOffsetX, -260, 260),
-			Clamp(visual.nameOffsetY, -80, 80)
-		)
-	else
-		previewUnitName:SetPoint("BOTTOM", previewHealthBar, "TOP", 0, 3)
-	end
-	previewUnitName:SetTextColor(
-		visual and visual.nameRed or 1,
-		visual and visual.nameGreen or 0.82,
-		visual and visual.nameBlue or 0.20,
-		visual and visual.nameAlpha or 1
+	ApplyReferenceTextVisual(
+		previewUnitName,
+		previewHealthBar,
+		visual,
+		"name",
+		"Enemy Nameplate",
+		"BOTTOM",
+		"TOP",
+		0,
+		3,
+		1,
+		0.82,
+		0.20
 	)
-
-	previewHealthText:ClearAllPoints()
-	previewHealthText:SetText(visual and visual.healthText or "72%")
-	if visual and visual.healthFontPath then
-		previewHealthText:SetFont(
-			visual.healthFontPath,
-			Clamp(visual.healthFontSize or 12, 6, 32),
-			visual.healthFontFlags or ""
-		)
-	else
-		previewHealthText:SetFontObject("SystemFont_NamePlate_Outlined")
-	end
-	if visual and visual.healthOffsetX and visual.healthOffsetY then
-		previewHealthText:SetPoint(
-			"CENTER",
-			previewHealthBar,
-			"CENTER",
-			Clamp(visual.healthOffsetX, -260, 260),
-			Clamp(visual.healthOffsetY, -80, 80)
-		)
-	else
-		previewHealthText:SetPoint("CENTER", previewHealthBar, "CENTER", 0, 0)
-	end
-	previewHealthText:SetTextColor(
-		visual and visual.healthRed or 1,
-		visual and visual.healthGreen or 1,
-		visual and visual.healthBlue or 1,
-		visual and visual.healthAlpha or 1
+	ApplyReferenceTextVisual(
+		previewHealthText,
+		previewHealthBar,
+		visual,
+		"health",
+		"72%",
+		"CENTER",
+		"CENTER",
+		0,
+		0,
+		1,
+		1,
+		1
 	)
 	previewSourceText:SetText(
 		visual and "Current visible nameplate baseline"
 			or "Default 128 × 20 nameplate baseline"
 	)
 
-	local width = db.badgeWidth
-	if db.autoWidth then
-		width = math.max(
-			width,
-			math.ceil(previewBadgeText:GetStringWidth()) + db.padding * 2
-		)
-	end
-	previewBadge:SetSize(width, db.badgeHeight)
-	previewBadge:SetBackdropColor(
-		db.backgroundColor[1],
-		db.backgroundColor[2],
-		db.backgroundColor[3],
-		db.backgroundColor[4]
-	)
+	previewBadge:SetSize(addon:GetBadgeWidth(previewBadgeText), db.badgeHeight)
 	addon:ApplyThreatColor(previewBadge, previewBadgeText, isLeader, isWarning, isTank)
 
 	previewBadge:ClearAllPoints()
@@ -499,8 +497,8 @@ local function CommitDraggedPosition()
 
 	db.anchorPoint = nearestPreset.point
 	db.relativePoint = nearestPreset.relativePoint
-	db.offsetX = Clamp(Round(nearestOffsetX), -300, 300)
-	db.offsetY = Clamp(Round(nearestOffsetY), -300, 300)
+	db.offsetX = addon.NormalizeSettingValue("offsetX", nearestOffsetX)
+	db.offsetY = addon.NormalizeSettingValue("offsetY", nearestOffsetY)
 	QueueDisplayChange("layout", true)
 end
 
@@ -511,8 +509,8 @@ local function StopPreviewResize()
 
 	previewBadge:StopMovingOrSizing()
 	previewBadge.resizing = false
-	db.badgeWidth = Clamp(Round(previewBadge:GetWidth()), 36, 160)
-	db.badgeHeight = Clamp(Round(previewBadge:GetHeight()), 14, 64)
+	db.badgeWidth = addon.NormalizeSettingValue("badgeWidth", previewBadge:GetWidth())
+	db.badgeHeight = addon.NormalizeSettingValue("badgeHeight", previewBadge:GetHeight())
 	QueueDisplayChange("layout", true)
 end
 
@@ -701,7 +699,12 @@ local function CreatePreview(parent)
 	badge:SetBackdrop(BACKDROP)
 	badge:SetMovable(true)
 	badge:SetResizable(true)
-	badge:SetResizeBounds(36, 14, 160, 64)
+	badge:SetResizeBounds(
+		settingDefinitions.badgeWidth.minimum,
+		settingDefinitions.badgeHeight.minimum,
+		settingDefinitions.badgeWidth.maximum,
+		settingDefinitions.badgeHeight.maximum
+	)
 	badge:EnableMouse(true)
 	badge:RegisterForDrag("LeftButton")
 	previewBadge = badge
@@ -723,8 +726,8 @@ local function CreatePreview(parent)
 		if applyingPreview or not badge.resizing then
 			return
 		end
-		db.badgeWidth = Clamp(Round(width), 36, 160)
-		db.badgeHeight = Clamp(Round(height), 14, 64)
+		db.badgeWidth = addon.NormalizeSettingValue("badgeWidth", width)
+		db.badgeHeight = addon.NormalizeSettingValue("badgeHeight", height)
 		QueueDisplayChange("layout", false)
 	end)
 
@@ -1001,6 +1004,65 @@ local function CreateChoiceRow(
 	return control
 end
 
+local function CreateSettingCheckRow(section, key, labelText, tooltip, changeKind)
+	return CreateCheckRow(
+		section,
+		labelText,
+		tooltip,
+		function()
+			return db[key]
+		end,
+		function(checked)
+			db[key] = checked
+			QueueDisplayChange(changeKind, true)
+		end
+	)
+end
+
+local function CreateSettingSliderRow(section, key, labelText, tooltip, changeKind)
+	local definition = settingDefinitions[key]
+	return CreateSliderRow(
+		section,
+		labelText,
+		tooltip,
+		definition.minimum,
+		definition.maximum,
+		definition.step,
+		function()
+			return db[key]
+		end,
+		function(value)
+			db[key] = value
+		end,
+		changeKind
+	)
+end
+
+local function CreateSettingChoiceRow(
+	section,
+	key,
+	labelText,
+	tooltip,
+	choices,
+	changeKind,
+	height
+)
+	return CreateChoiceRow(
+		section,
+		labelText,
+		tooltip,
+		choices,
+		function()
+			return db[key]
+		end,
+		function(value)
+			db[key] = value
+		end,
+		changeKind,
+		height
+	)
+end
+
 local function CreateColorRow(section, labelText, tooltip, key, hasAlpha, enabledWhen)
 	local row = CreateRow(section, 38)
 	local label = CreateText(row, labelText, "GameFontHighlight")
@@ -1066,6 +1128,195 @@ local function CreateAnchorGrid(section)
 	return control
 end
 
+local function CreateGeneralSection(parent)
+	local section = CreateSection(parent, "general", "General")
+	CreateCheckRow(
+		section,
+		"Enable threat counters",
+		"Synchronizes the addon’s enabled state everywhere.",
+		function()
+			return addon.enabled
+		end,
+		function(checked)
+			addon:SetEnabled(checked)
+		end
+	)
+	CreateInfoRow(section)
+end
+
+local function CreatePositionSection(parent)
+	local section = CreateSection(parent, "position", "Position & Size")
+	CreateAnchorGrid(section)
+	CreateSettingSliderRow(
+		section,
+		"offsetX",
+		"Horizontal offset",
+		"Exact horizontal distance from the selected health-bar anchor.",
+		"layout"
+	)
+	CreateSettingSliderRow(
+		section,
+		"offsetY",
+		"Vertical offset",
+		"Exact vertical distance from the selected health-bar anchor.",
+		"layout"
+	)
+	CreateSettingSliderRow(
+		section,
+		"badgeWidth",
+		"Minimum width",
+		"The badge never becomes narrower than this value.",
+		"layout"
+	)
+	CreateSettingSliderRow(
+		section,
+		"badgeHeight",
+		"Height",
+		"Badge height. This does not change the font size.",
+		"layout"
+	)
+	CreateSettingCheckRow(
+		section,
+		"autoWidth",
+		"Expand width for long values",
+		"Allow formatted counters to grow beyond the minimum width.",
+		"layout"
+	)
+	CreateSettingSliderRow(
+		section,
+		"padding",
+		"Horizontal padding",
+		"Space added to both sides of automatically sized text.",
+		"layout"
+	)
+end
+
+local function CreateTypographySection(parent)
+	local section = CreateSection(parent, "typography", "Typography")
+	CreateSettingSliderRow(
+		section,
+		"fontSize",
+		"Font size",
+		"Text size, independent of badge height.",
+		"style"
+	)
+	CreateSettingChoiceRow(
+		section,
+		"fontPreset",
+		"Blizzard font preset",
+		"Use a stock Blizzard font object; no fonts are bundled.",
+		{
+			{ label = "Nameplate", value = "nameplate" },
+			{ label = "UI", value = "ui" },
+			{ label = "Combat", value = "combat" },
+		},
+		"style"
+	)
+	CreateSettingCheckRow(
+		section,
+		"shadow",
+		"Text shadow",
+		"Draw the stock one-pixel text shadow.",
+		"style"
+	)
+end
+
+local function CreateAppearanceSection(parent)
+	local section = CreateSection(parent, "appearance", "Appearance")
+	CreateColorRow(
+		section,
+		"Background color",
+		"Choose the badge background color.",
+		"backgroundColor",
+		true
+	)
+	CreateSliderRow(
+		section,
+		"Background opacity",
+		"Set zero for a fully transparent background.",
+		0,
+		1,
+		0.05,
+		function()
+			return db.backgroundColor[4]
+		end,
+		function(value)
+			db.backgroundColor[4] = value
+		end,
+		"style"
+	)
+	CreateSettingChoiceRow(
+		section,
+		"borderMode",
+		"Border mode",
+		"Semantic follows the threat color; custom uses one fixed color.",
+		{
+			{ label = "Semantic", value = "semantic" },
+			{ label = "Custom", value = "custom" },
+			{ label = "Off", value = "off" },
+		},
+		"style"
+	)
+	CreateColorRow(
+		section,
+		"Custom border",
+		"Choose the fixed custom border color and opacity.",
+		"borderColor",
+		true,
+		function()
+			return db.borderMode == "custom"
+		end
+	)
+end
+
+local function CreateThreatColorsSection(parent)
+	local section = CreateSection(parent, "colors", "Threat Colors")
+	CreateSettingChoiceRow(
+		section,
+		"palette",
+		"Palette",
+		"Palette changes presentation only; safe, danger, and warning meanings stay fixed.",
+		{
+			{ label = "Default", value = "default" },
+			{ label = "Blue / Verm.", value = "blue" },
+			{ label = "Cyan / Mag.", value = "cyan" },
+			{ label = "Custom", value = "custom" },
+		},
+		"style",
+		86
+	)
+	CreateColorRow(
+		section,
+		"Custom safe",
+		"Color for the role-appropriate safe state.",
+		"safeColor",
+		false,
+		function()
+			return db.palette == "custom"
+		end
+	)
+	CreateColorRow(
+		section,
+		"Custom danger",
+		"Color for the role-appropriate dangerous state.",
+		"dangerColor",
+		false,
+		function()
+			return db.palette == "custom"
+		end
+	)
+	CreateColorRow(
+		section,
+		"Custom warning",
+		"Role-independent pull-threshold warning color.",
+		"warningColor",
+		false,
+		function()
+			return db.palette == "custom"
+		end
+	)
+end
+
 local function CreateControls(parent)
 	local pane = CreateFrame("Frame", nil, parent, "BackdropTemplate")
 	pane:SetBackdrop(BACKDROP)
@@ -1117,258 +1368,11 @@ local function CreateControls(parent)
 	scroll:SetScrollChild(child)
 	scrollChild = child
 
-	local general = CreateSection(child, "general", "General")
-	CreateCheckRow(
-		general,
-		"Enable threat counters",
-		"Synchronizes the addon’s enabled state everywhere.",
-		function()
-			return addon.enabled
-		end,
-		function(checked)
-			addon:SetEnabled(checked)
-			ApplyPreviewVisuals()
-		end
-	)
-	CreateInfoRow(general)
-
-	local position = CreateSection(child, "position", "Position & Size")
-	CreateAnchorGrid(position)
-	CreateSliderRow(
-		position,
-		"Horizontal offset",
-		"Exact horizontal distance from the selected health-bar anchor.",
-		-300,
-		300,
-		1,
-		function()
-			return db.offsetX
-		end,
-		function(value)
-			db.offsetX = value
-		end,
-		"layout"
-	)
-	CreateSliderRow(
-		position,
-		"Vertical offset",
-		"Exact vertical distance from the selected health-bar anchor.",
-		-300,
-		300,
-		1,
-		function()
-			return db.offsetY
-		end,
-		function(value)
-			db.offsetY = value
-		end,
-		"layout"
-	)
-	CreateSliderRow(
-		position,
-		"Minimum width",
-		"The badge never becomes narrower than this value.",
-		36,
-		160,
-		1,
-		function()
-			return db.badgeWidth
-		end,
-		function(value)
-			db.badgeWidth = value
-		end,
-		"layout"
-	)
-	CreateSliderRow(
-		position,
-		"Height",
-		"Badge height. This does not change the font size.",
-		14,
-		64,
-		1,
-		function()
-			return db.badgeHeight
-		end,
-		function(value)
-			db.badgeHeight = value
-		end,
-		"layout"
-	)
-	CreateCheckRow(
-		position,
-		"Expand width for long values",
-		"Allow formatted counters to grow beyond the minimum width.",
-		function()
-			return db.autoWidth
-		end,
-		function(checked)
-			db.autoWidth = checked
-			QueueDisplayChange("layout", true)
-		end
-	)
-	CreateSliderRow(
-		position,
-		"Horizontal padding",
-		"Space added to both sides of automatically sized text.",
-		0,
-		32,
-		1,
-		function()
-			return db.padding
-		end,
-		function(value)
-			db.padding = value
-		end,
-		"layout"
-	)
-
-	local typography = CreateSection(child, "typography", "Typography")
-	CreateSliderRow(
-		typography,
-		"Font size",
-		"Text size, independent of badge height.",
-		8,
-		32,
-		1,
-		function()
-			return db.fontSize
-		end,
-		function(value)
-			db.fontSize = value
-		end,
-		"style"
-	)
-	CreateChoiceRow(
-		typography,
-		"Blizzard font preset",
-		"Use a stock Blizzard font object; no fonts are bundled.",
-		{
-			{ label = "Nameplate", value = "nameplate" },
-			{ label = "UI", value = "ui" },
-			{ label = "Combat", value = "combat" },
-		},
-		function()
-			return db.fontPreset
-		end,
-		function(value)
-			db.fontPreset = value
-		end,
-		"style"
-	)
-	CreateCheckRow(
-		typography,
-		"Text shadow",
-		"Draw the stock one-pixel text shadow.",
-		function()
-			return db.shadow
-		end,
-		function(checked)
-			db.shadow = checked
-			QueueDisplayChange("style", true)
-		end
-	)
-
-	local appearance = CreateSection(child, "appearance", "Appearance")
-	CreateColorRow(
-		appearance,
-		"Background color",
-		"Choose the badge background color.",
-		"backgroundColor",
-		true
-	)
-	CreateSliderRow(
-		appearance,
-		"Background opacity",
-		"Set zero for a fully transparent background.",
-		0,
-		1,
-		0.05,
-		function()
-			return db.backgroundColor[4]
-		end,
-		function(value)
-			db.backgroundColor[4] = value
-		end,
-		"style"
-	)
-	CreateChoiceRow(
-		appearance,
-		"Border mode",
-		"Semantic follows the threat color; custom uses one fixed color.",
-		{
-			{ label = "Semantic", value = "semantic" },
-			{ label = "Custom", value = "custom" },
-			{ label = "Off", value = "off" },
-		},
-		function()
-			return db.borderMode
-		end,
-		function(value)
-			db.borderMode = value
-		end,
-		"style"
-	)
-	CreateColorRow(
-		appearance,
-		"Custom border",
-		"Choose the fixed custom border color and opacity.",
-		"borderColor",
-		true,
-		function()
-			return db.borderMode == "custom"
-		end
-	)
-
-	local colors = CreateSection(child, "colors", "Threat Colors")
-	CreateChoiceRow(
-		colors,
-		"Palette",
-		"Palette changes presentation only; safe, danger, and warning meanings stay fixed.",
-		{
-			{ label = "Default", value = "default" },
-			{ label = "Blue / Verm.", value = "blue" },
-			{ label = "Cyan / Mag.", value = "cyan" },
-			{ label = "Custom", value = "custom" },
-		},
-		function()
-			return db.palette
-		end,
-		function(value)
-			db.palette = value
-		end,
-		"style",
-		86
-	)
-	CreateColorRow(
-		colors,
-		"Custom safe",
-		"Color for the role-appropriate safe state.",
-		"safeColor",
-		false,
-		function()
-			return db.palette == "custom"
-		end
-	)
-	CreateColorRow(
-		colors,
-		"Custom danger",
-		"Color for the role-appropriate dangerous state.",
-		"dangerColor",
-		false,
-		function()
-			return db.palette == "custom"
-		end
-	)
-	CreateColorRow(
-		colors,
-		"Custom warning",
-		"Role-independent pull-threshold warning color.",
-		"warningColor",
-		false,
-		function()
-			return db.palette == "custom"
-		end
-	)
+	CreateGeneralSection(child)
+	CreatePositionSection(child)
+	CreateTypographySection(child)
+	CreateAppearanceSection(child)
+	CreateThreatColorsSection(child)
 
 	return pane
 end
@@ -1500,26 +1504,10 @@ end
 local function RestoreSession()
 	if sessionSnapshot then
 		addon:RestoreDisplaySettings(sessionSnapshot)
-		ApplyPreviewVisuals()
 	end
 end
 
-local function CreateConfigWindow()
-	local window = CreateFrame("Frame", "ThreatPlatingConfigWindow", UIParent, "BackdropTemplate")
-	window:SetSize(db.windowWidth, db.windowHeight)
-	window:SetPoint("CENTER", UIParent, "CENTER", db.windowOffsetX, db.windowOffsetY)
-	window:SetBackdrop(BACKDROP)
-	window:SetBackdropColor(0.035, 0.045, 0.060, 0.99)
-	window:SetBackdropBorderColor(0.22, 0.55, 0.38, 1)
-	window:SetFrameStrata("DIALOG")
-	window:SetClampedToScreen(true)
-	window:SetMovable(true)
-	window:SetResizable(true)
-	window:SetResizeBounds(520, 520, 1000, 800)
-	window:EnableMouse(true)
-	window:Hide()
-	UISpecialFrames[#UISpecialFrames + 1] = "ThreatPlatingConfigWindow"
-
+local function CreateWindowTitle(window)
 	local titleBar = CreateFrame("Frame", nil, window)
 	titleBar:SetPoint("TOPLEFT", window, "TOPLEFT", 1, -1)
 	titleBar:SetPoint("TOPRIGHT", window, "TOPRIGHT", -1, -1)
@@ -1556,10 +1544,9 @@ local function CreateConfigWindow()
 		addon.CloseConfig()
 	end)
 	AddTooltip(closeButton, "Close", "Keep changes and close the editor.")
+end
 
-	CreatePreview(window)
-	CreateControls(window)
-
+local function CreateWindowFooter(window)
 	local footerBackground = window:CreateTexture(nil, "BACKGROUND")
 	footerBackground:SetColorTexture(0.02, 0.03, 0.04, 0.98)
 	footerBackground:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 1, 1)
@@ -1568,19 +1555,16 @@ local function CreateConfigWindow()
 
 	local resetLayout = CreateButton(window, "Reset Layout", 88, function()
 		addon:ResetLayoutSettings()
-		ApplyPreviewVisuals()
 	end, "Restore position and size defaults immediately.")
 	resetLayout:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 12, 13)
 
 	local resetAppearance = CreateButton(window, "Reset Appearance", 110, function()
 		addon:ResetAppearanceSettings()
-		ApplyPreviewVisuals()
 	end, "Restore typography, background, border, and color defaults immediately.")
 	resetAppearance:SetPoint("LEFT", resetLayout, "RIGHT", 4, 0)
 
 	local resetAll = CreateButton(window, "Reset All", 74, function()
 		addon:ResetAllSettings()
-		ApplyPreviewVisuals()
 	end, "Restore every display setting and enable the addon.")
 	resetAll:SetPoint("LEFT", resetAppearance, "RIGHT", 4, 0)
 
@@ -1598,7 +1582,9 @@ local function CreateConfigWindow()
 		"Restore the state captured when this editor session opened."
 	)
 	revert:SetPoint("RIGHT", done, "LEFT", -4, 0)
+end
 
+local function CreateWindowResizeGrip(window)
 	local windowGrip = CreateFrame("Button", nil, window)
 	windowGrip:SetSize(20, 20)
 	windowGrip:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -1, 1)
@@ -1612,20 +1598,32 @@ local function CreateConfigWindow()
 	end)
 	windowGrip:SetScript("OnMouseUp", function()
 		window:StopMovingOrSizing()
-		db.windowWidth = Round(window:GetWidth())
-		db.windowHeight = Round(window:GetHeight())
+		db.windowWidth = addon.NormalizeSettingValue("windowWidth", window:GetWidth())
+		db.windowHeight = addon.NormalizeSettingValue("windowHeight", window:GetHeight())
 		SaveWindowPosition(window)
 		ReflowWindow(window)
 	end)
-	AddTooltip(windowGrip, "Resize editor", "Resize between 520×520 and 1000×800.")
+	AddTooltip(
+		windowGrip,
+		"Resize editor",
+		string.format(
+			"Resize between %d×%d and %d×%d.",
+			settingDefinitions.windowWidth.minimum,
+			settingDefinitions.windowHeight.minimum,
+			settingDefinitions.windowWidth.maximum,
+			settingDefinitions.windowHeight.maximum
+		)
+	)
+end
 
+local function AttachWindowScripts(window)
 	function window.LayoutControls()
 		LayoutControls(math.max(240, controlsPane:GetWidth() - 40))
 	end
 
 	window:SetScript("OnSizeChanged", function(_, width, height)
-		db.windowWidth = Clamp(Round(width), 520, 1000)
-		db.windowHeight = Clamp(Round(height), 520, 800)
+		db.windowWidth = addon.NormalizeSettingValue("windowWidth", width)
+		db.windowHeight = addon.NormalizeSettingValue("windowHeight", height)
 		ReflowWindow(window)
 	end)
 
@@ -1669,6 +1667,35 @@ local function CreateConfigWindow()
 			ApplyPreviewVisuals()
 		end
 	end)
+end
+
+local function CreateConfigWindow()
+	local window = CreateFrame("Frame", "ThreatPlatingConfigWindow", UIParent, "BackdropTemplate")
+	window:SetSize(db.windowWidth, db.windowHeight)
+	window:SetPoint("CENTER", UIParent, "CENTER", db.windowOffsetX, db.windowOffsetY)
+	window:SetBackdrop(BACKDROP)
+	window:SetBackdropColor(0.035, 0.045, 0.060, 0.99)
+	window:SetBackdropBorderColor(0.22, 0.55, 0.38, 1)
+	window:SetFrameStrata("DIALOG")
+	window:SetClampedToScreen(true)
+	window:SetMovable(true)
+	window:SetResizable(true)
+	window:SetResizeBounds(
+		settingDefinitions.windowWidth.minimum,
+		settingDefinitions.windowHeight.minimum,
+		settingDefinitions.windowWidth.maximum,
+		settingDefinitions.windowHeight.maximum
+	)
+	window:EnableMouse(true)
+	window:Hide()
+	UISpecialFrames[#UISpecialFrames + 1] = "ThreatPlatingConfigWindow"
+
+	CreateWindowTitle(window)
+	CreatePreview(window)
+	CreateControls(window)
+	CreateWindowFooter(window)
+	CreateWindowResizeGrip(window)
+	AttachWindowScripts(window)
 
 	configWindow = window
 	ReflowWindow(window)

@@ -375,325 +375,22 @@ function Frame:UnlockHighlight()
 	self.highlighted = false
 end
 
-local frames = {}
-local plates = {}
-local units = {
-	nameplate1 = true,
-	pet = true,
-	player = true,
-}
-local threat = {}
-local now = 100
-local nameplateScanCount = 0
-local threatQueryCount = 0
-local targetPlateUnit
-local assignedRole = "NONE"
-local isMainTank = false
-local playerClass = "WARRIOR"
-local activeFormSpellID
-local talentPoints = { 0, 0, 41 }
+local mock = assert(loadfile("tests/wow_mock.lua"))()(Frame)
+local frames = mock.frames
+local plates = mock.plates
+local units = mock.units
+local threat = mock.threat
 
-function CreateFrame(frameType, name, parent, template)
-	local frame = setmetatable({
-		children = {},
-		enabled = true,
-		events = {},
-		frameLevel = parent and parent:GetFrameLevel() + 1 or 1,
-		frameType = frameType,
-		hooks = {},
-		name = name,
-		parent = parent,
-		points = {},
-		scripts = {},
-		shown = true,
-		template = template,
-	}, Frame)
-	frames[#frames + 1] = frame
-	if parent and parent.children then
-		parent.children[#parent.children + 1] = frame
-	end
-	return frame
-end
-
-C_NamePlate = {}
-
-function C_NamePlate.GetNamePlateForUnit(unit)
-	if unit == "target" and targetPlateUnit then
-		return plates[targetPlateUnit]
-	end
-	return plates[unit]
-end
-
-function C_NamePlate.GetNamePlates()
-	nameplateScanCount = nameplateScanCount + 1
-	local visible = {}
-	for _, plate in pairs(plates) do
-		visible[#visible + 1] = plate
-	end
-	return visible
-end
-
-function GetNumGroupMembers()
-	return 0
-end
-
-function GetNumSubgroupMembers()
-	return 0
-end
-
-function GetNumTalentTabs()
-	return 3
-end
-
-function GetPartyAssignment()
-	return isMainTank
-end
-
-function GetShapeshiftForm()
-	return activeFormSpellID and 1 or 0
-end
-
-function GetShapeshiftFormInfo()
-	return nil, activeFormSpellID ~= nil, true, activeFormSpellID
-end
-
-function GetTalentTabInfo(index)
-	return index, "Tree " .. index, nil, nil, talentPoints[index], "Tree" .. index
-end
-
-function GetTime()
-	return now
-end
-
-function IsInGroup()
-	return false
-end
-
-function IsInRaid()
-	return false
-end
-
-function UnitCanAttack(_, unit)
-	return unit == "nameplate1" or unit == "nameplate2" or unit == "nameplate3"
-end
-
-function UnitClass()
-	return playerClass, playerClass
-end
-
-function UnitDetailedThreatSituation(source, enemy)
-	threatQueryCount = threatQueryCount + 1
-	local result = threat[source .. ":" .. enemy]
-	if result == "error" then
-		error("restricted threat query")
-	end
-	if not result then
-		return nil
-	end
-	return unpack(result)
-end
-
-function UnitExists(unit)
-	return units[unit] == true
-end
-
-function UnitIsPlayer(unit)
-	return unit == "nameplate2"
-end
-
-function UnitIsUnit(left, right)
-	return left == right
-end
-
-function UnitPlayerControlled(unit)
-	return unit == "nameplate2"
-end
-
-function UnitGroupRolesAssigned()
-	return assignedRole
-end
-
-function wipe(target)
-	for key in pairs(target) do
-		target[key] = nil
-	end
-end
-
-SlashCmdList = {}
-UISpecialFrames = {}
-UIParent = setmetatable({
-	centerX = 960,
-	centerY = 540,
-	children = {},
-	events = {},
-	frameLevel = 0,
-	height = 1080,
-	hooks = {},
-	points = {},
-	scripts = {},
-	shown = true,
-	width = 1920,
-}, Frame)
-
-GameTooltip = {
-	AddLine = function()
-	end,
-	Hide = function()
-	end,
-	SetOwner = function()
-	end,
-	SetText = function()
-	end,
-	Show = function()
-	end,
-}
-
-ColorPickerFrame = setmetatable({
-	children = {},
-	events = {},
-	frameLevel = 10,
-	hooks = {},
-	points = {},
-	scripts = {},
-	shown = false,
-}, Frame)
-
-function ColorPickerFrame:GetColorRGB()
-	return self.red or 1, self.green or 1, self.blue or 1
-end
-
-function ColorPickerFrame:GetColorAlpha()
-	return self.opacity or 1
-end
-
-function ColorPickerFrame:GetExtraInfo()
-	return self.extraInfo
-end
-
-function ColorPickerFrame:SetColorRGB(red, green, blue)
-	self.red = red
-	self.green = green
-	self.blue = blue
-end
-
-function ColorPickerFrame:SetupColorPickerAndShow(info)
-	self.swatchFunc = info.swatchFunc
-	self.hasOpacity = info.hasOpacity
-	self.opacityFunc = info.opacityFunc
-	self.opacity = info.opacity
-	self.cancelFunc = info.cancelFunc
-	self.extraInfo = info.extraInfo
-	self:SetColorRGB(info.r, info.g, info.b)
-	self:Show()
-	self.swatchFunc()
-end
-
-Settings = {}
-
-function Settings.RegisterCanvasLayoutCategory()
-	return {}, {
-		AddAnchorPoint = function()
-		end,
-	}
-end
-
-function Settings.RegisterAddOnCategory()
-end
-
-ThreatPlatingDB = {
-	anchorPoint = "TOP",
-	autoWidth = false,
-	badgeHeight = 24,
-	badgeWidth = 80,
-	enabled = false,
-	fontSize = 18,
-	offsetX = 12,
-	offsetY = -7,
-	relativePoint = "BOTTOM",
-	showBackground = true,
-	windowHeight = 600,
-	windowOffsetX = 33,
-	windowOffsetY = -22,
-	windowWidth = 700,
-}
-local legacyBackgroundAddon = {}
-assert(loadfile("Init.lua"))("ThreatPlating", legacyBackgroundAddon)
-assert(legacyBackgroundAddon.db.schemaVersion == 2, "legacy databases should migrate")
-assert(legacyBackgroundAddon.db.anchorPoint == "TOP", "migration should preserve placement")
-assert(legacyBackgroundAddon.db.badgeWidth == 80, "migration should preserve badge size")
-assert(legacyBackgroundAddon.db.fontSize == 18, "migration should preserve font size")
-assert(legacyBackgroundAddon.db.autoWidth == false, "migration should preserve automatic width")
-assert(legacyBackgroundAddon.db.enabled == false, "migration should preserve enabled state")
-assert(legacyBackgroundAddon.db.windowWidth == 700, "migration should preserve window geometry")
-assert(legacyBackgroundAddon.db.backgroundColor[4] == 0.90, "legacy backgrounds should retain opacity")
-assert(legacyBackgroundAddon.db.borderMode == "semantic", "legacy backgrounds should use semantic borders")
-assert(legacyBackgroundAddon.db.showBackground == nil, "legacy background fields should be removed")
-
-ThreatPlatingDB = {
-	showBackground = false,
-}
-local legacyTransparentAddon = {}
-assert(loadfile("Init.lua"))("ThreatPlating", legacyTransparentAddon)
-assert(
-	legacyTransparentAddon.db.backgroundColor[4] == 0,
-	"disabled legacy backgrounds should migrate to transparent"
-)
-assert(
-	legacyTransparentAddon.db.borderMode == "off",
-	"disabled legacy backgrounds should migrate without a border"
-)
-
-ThreatPlatingDB = {
-	badgeHeight = 14,
-	badgeWidth = -100,
-	backgroundColor = { 0.2, math.huge - math.huge, 2, -1 },
-	borderColor = { math.huge, 0.4, 0.5, 2 },
-	collapsedSections = {
-		general = "invalid",
-		position = true,
-	},
-	enabled = "invalid",
-	fontPreset = "invalid",
-	fontSize = 32,
-	offsetX = math.huge - math.huge,
-	offsetY = math.huge,
-	palette = "hostile",
-	safeColor = { -1, 0.5, math.huge },
-	schemaVersion = 2,
-	windowHeight = false,
-	windowOffsetX = 99999,
-	windowOffsetY = -99999,
-}
-
+ThreatPlatingDB = {}
 local addon = {}
 assert(loadfile("Init.lua"))("ThreatPlating", addon)
 assert(loadfile("Threat.lua"))("ThreatPlating", addon)
+assert(loadfile("Display.lua"))("ThreatPlating", addon)
 assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 addon.testHarness = true
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
 assert(addon.version == "0.5.1", "runtime version should match the release")
-assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
-assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
-assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")
-assert(addon.db.badgeWidth == 36, "finite saved dimensions should be clamped")
-assert(addon.db.badgeHeight == 14, "badge and font size should validate independently")
-assert(addon.db.windowHeight == 620, "invalid saved dimensions should use defaults")
-assert(addon.db.backgroundColor[1] == 0.2, "valid color components should survive")
-assert(addon.db.backgroundColor[2] == 0.025, "non-finite color components should reset")
-assert(addon.db.backgroundColor[3] == 1, "color components should clamp high")
-assert(addon.db.backgroundColor[4] == 0, "alpha components should clamp low")
-assert(addon.db.borderColor[1] == 0.65, "non-finite custom border components should reset")
-assert(addon.db.borderColor[4] == 1, "custom border alpha should clamp")
-assert(addon.db.safeColor[1] == 0, "semantic colors should clamp independently")
-assert(addon.db.safeColor[2] == 0.5, "valid semantic color components should survive")
-assert(addon.db.safeColor[3] == 0.35, "non-finite semantic colors should reset independently")
-assert(addon.db.fontPreset == "nameplate", "invalid font presets should reset")
-assert(addon.db.palette == "default", "invalid palette identifiers should reset")
-assert(addon.db.collapsedSections.general == false, "invalid collapsed states should reset")
-assert(addon.db.collapsedSections.position == true, "valid collapsed states should survive")
-assert(addon.db.windowOffsetX == 570, "off-screen horizontal geometry should recover")
-assert(addon.db.windowOffsetY == -230, "off-screen vertical geometry should recover")
 
 local function NewPlate(unit)
 	local plate = CreateFrame("Frame")
@@ -735,51 +432,12 @@ local function NewPlate(unit)
 end
 
 local eventFrame
-local databaseFrame
 for _, frame in ipairs(frames) do
 	if frame.events.NAME_PLATE_UNIT_ADDED then
 		eventFrame = frame
-	elseif frame.events.ADDON_LOADED then
-		databaseFrame = frame
 	end
 end
 assert(eventFrame, "nameplate event frame should exist")
-assert(databaseFrame, "database event frame should wait for ADDON_LOADED")
-
-local runtimeDatabase = addon.db
-local lateLoadedDatabase = addon.CopyValue(addon.db)
-lateLoadedDatabase.schemaVersion = nil
-lateLoadedDatabase.showBackground = true
-lateLoadedDatabase.backgroundColor = nil
-lateLoadedDatabase.borderMode = nil
-lateLoadedDatabase.padding = 13
-ThreatPlatingDB = lateLoadedDatabase
-databaseFrame.scripts.OnEvent(databaseFrame, "ADDON_LOADED", "AnotherAddon")
-assert(
-	databaseFrame.events.ADDON_LOADED,
-	"unrelated addon load events should not finalize saved variables"
-)
-databaseFrame.scripts.OnEvent(databaseFrame, "ADDON_LOADED", "ThreatPlating")
-assert(addon.db == runtimeDatabase, "database adoption should preserve the runtime table identity")
-assert(
-	ThreatPlatingDB == runtimeDatabase,
-	"the saved global should point at the table mutated by the editor"
-)
-assert(addon.db.padding == 13, "late-loaded custom settings should be adopted")
-assert(addon.db.schemaVersion == 2, "late-loaded legacy settings should migrate")
-assert(
-	addon.db.backgroundColor[4] == 0.90 and addon.db.borderMode == "semantic",
-	"late-loaded legacy appearance should migrate"
-)
-addon.db.padding = 17
-assert(
-	ThreatPlatingDB.padding == 17,
-	"editor mutations should update the table serialized by WoW"
-)
-assert(
-	not databaseFrame.events.ADDON_LOADED,
-	"database initialization should finish after the addon’s load event"
-)
 
 local function Dispatch(event, unit)
 	assert(eventFrame.events[event], "event is not registered: " .. event)
@@ -787,7 +445,7 @@ local function Dispatch(event, unit)
 end
 
 local function Update(elapsed)
-	now = now + elapsed
+	mock.now = mock.now + elapsed
 	eventFrame.scripts.OnUpdate(eventFrame, elapsed)
 end
 
@@ -838,16 +496,19 @@ assert(
 )
 AssertColor(plate.ThreatPlatingOverlay.text, 1, 0.32, 0.26, "tank deficit should be red")
 
-local scansBeforeThreatEvent = nameplateScanCount
+local scansBeforeThreatEvent = mock.nameplateScanCount
 threat["player:nameplate1"] = { false, 1, 50, 50, 50000 }
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 Update(0.05)
 
 assert(plate.ThreatPlatingOverlay.shown, "deficit overlay should remain shown")
 assert(plate.ThreatPlatingOverlay.text.text == "-500", "deficit overlay should show -500")
-assert(nameplateScanCount == scansBeforeThreatEvent, "event refresh should not perform a fallback scan")
+assert(
+	mock.nameplateScanCount == scansBeforeThreatEvent,
+	"event refresh should not perform a fallback scan"
+)
 
-talentPoints = { 41, 0, 0 }
+mock.talentPoints = { 41, 0, 0 }
 Dispatch("PLAYER_TALENT_UPDATE")
 Update(0.05)
 assert(not addon.playerIsTank, "changing from Protection should select non-tank colors")
@@ -884,7 +545,7 @@ AssertColor(
 )
 threat["pet:nameplate1"] = { false, 1, 80, 80, 80000 }
 
-assignedRole = "TANK"
+mock.assignedRole = "TANK"
 Dispatch("PLAYER_ROLES_ASSIGNED")
 Update(0.05)
 assert(addon.playerIsTank, "assigned tank role should override talents")
@@ -901,57 +562,57 @@ Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 Update(0.05)
 AssertColor(plate.ThreatPlatingOverlay.text, 0.35, 1, 0.35, "assigned tank leader should be green")
 
-assignedRole = "DAMAGER"
-talentPoints = { 0, 0, 41 }
+mock.assignedRole = "DAMAGER"
+mock.talentPoints = { 0, 0, 41 }
 Dispatch("PLAYER_ROLES_ASSIGNED")
 Update(0.05)
 assert(not addon.playerIsTank, "assigned damage role should override Protection talents")
 
-assignedRole = "NONE"
-playerClass = "DRUID"
-talentPoints = { 0, 41, 0 }
-activeFormSpellID = 5487
+mock.assignedRole = "NONE"
+mock.playerClass = "DRUID"
+mock.talentPoints = { 0, 41, 0 }
+mock.activeFormSpellID = 5487
 Dispatch("UPDATE_SHAPESHIFT_FORM")
 Update(0.05)
 assert(addon.playerIsTank, "Bear Form should select tank colors")
 
-activeFormSpellID = 768
+mock.activeFormSpellID = 768
 Dispatch("UPDATE_SHAPESHIFT_FORM")
 Update(0.05)
 assert(not addon.playerIsTank, "Cat Form should select non-tank colors")
 
-playerClass = "PALADIN"
-activeFormSpellID = nil
-talentPoints = { 0, 41, 0 }
+mock.playerClass = "PALADIN"
+mock.activeFormSpellID = nil
+mock.talentPoints = { 0, 41, 0 }
 Dispatch("ACTIVE_TALENT_GROUP_CHANGED")
 Update(0.05)
 assert(addon.playerIsTank, "an active Protection talent group should select tank colors")
 
-isMainTank = 1
-playerClass = "MAGE"
-talentPoints = { 41, 0, 0 }
+mock.isMainTank = 1
+mock.playerClass = "MAGE"
+mock.talentPoints = { 41, 0, 0 }
 Dispatch("GROUP_ROSTER_UPDATE")
 Update(0.05)
 assert(addon.playerIsTank, "a truthy Classic main-tank assignment should select tank colors")
 
-isMainTank = false
+mock.isMainTank = false
 Dispatch("GROUP_ROSTER_UPDATE")
 Update(0.05)
 assert(not addon.playerIsTank, "clearing the main-tank assignment should restore detected colors")
 
-playerClass = "PALADIN"
-talentPoints = { 0, 41, 0 }
+mock.playerClass = "PALADIN"
+mock.talentPoints = { 0, 41, 0 }
 Dispatch("ACTIVE_TALENT_GROUP_CHANGED")
 Update(0.05)
 assert(addon.playerIsTank, "restored Protection talents should restore tank colors")
 
-local scansBeforeContinuousEvents = nameplateScanCount
+local scansBeforeContinuousEvents = mock.nameplateScanCount
 for _ = 1, 4 do
 	Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 	Update(0.05)
 end
 assert(
-	nameplateScanCount == scansBeforeContinuousEvents + 1,
+	mock.nameplateScanCount == scansBeforeContinuousEvents + 1,
 	"continuous threat events must not starve the fallback scan"
 )
 
@@ -1044,11 +705,11 @@ Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate3")
 Update(0.05)
 assert(unaffectedPlate.ThreatPlatingOverlay.shown, "second eligible plate should render")
 
-local queriesBeforeTargetedRefresh = threatQueryCount
+local queriesBeforeTargetedRefresh = mock.threatQueryCount
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 Update(0.05)
 assert(
-	threatQueryCount == queriesBeforeTargetedRefresh + 1,
+	mock.threatQueryCount == queriesBeforeTargetedRefresh + 1,
 	"a threat event should query only its affected visible plate"
 )
 
@@ -1058,12 +719,18 @@ units.nameplate3 = nil
 
 addon:SetEnabled(false)
 assert(addon.db.enabled == false, "disabled state should be saved")
-local scansWhileDisabled = nameplateScanCount
-local queriesWhileDisabled = threatQueryCount
+local scansWhileDisabled = mock.nameplateScanCount
+local queriesWhileDisabled = mock.threatQueryCount
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 Update(0.50)
-assert(nameplateScanCount == scansWhileDisabled, "disabled addon should not scan nameplates")
-assert(threatQueryCount == queriesWhileDisabled, "disabled addon should not query threat")
+assert(
+	mock.nameplateScanCount == scansWhileDisabled,
+	"disabled addon should not scan nameplates"
+)
+assert(
+	mock.threatQueryCount == queriesWhileDisabled,
+	"disabled addon should not query threat"
+)
 
 addon:SetEnabled(true)
 assert(addon.db.enabled == true, "enabled state should be saved")
@@ -1153,7 +820,7 @@ targetBaselinePlate.UnitFrame.healthBar:SetStatusBarColor(0.20, 0.40, 0.60, 1)
 targetBaselinePlate.UnitFrame.name:SetText("Current target baseline")
 threat["player:nameplate3"] = { false, 1, 50, 50, 50000 }
 Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate3")
-targetPlateUnit = "nameplate3"
+mock.targetPlateUnit = "nameplate3"
 window.scripts.OnUpdate(window, 0.50)
 assert(
 	addon.ConfigTest.getPreviewUnitName():GetText() == "Current target baseline",
@@ -1163,7 +830,7 @@ baselineRed, baselineGreen, baselineBlue = baselineHealthBar:GetStatusBarColor()
 AssertNear(baselineRed, 0.20, "target baseline red")
 AssertNear(baselineGreen, 0.40, "target baseline green")
 AssertNear(baselineBlue, 0.60, "target baseline blue")
-targetPlateUnit = nil
+mock.targetPlateUnit = nil
 Dispatch("NAME_PLATE_UNIT_REMOVED", "nameplate3")
 plates.nameplate3 = nil
 units.nameplate3 = nil
@@ -1246,6 +913,20 @@ assert(addon.db.palette == "default", "palette choices should switch independent
 
 local previewBadge = addon.ConfigTest.getPreviewBadge()
 local previewHealthBar = addon.ConfigTest.getPreviewHealthBar()
+local widthDefinition = addon.settingDefinitions.badgeWidth
+local heightDefinition = addon.settingDefinitions.badgeHeight
+local minimumWidth, maximumWidth = FindControl("Minimum width").slider:GetMinMaxValues()
+assert(
+	minimumWidth == widthDefinition.minimum and maximumWidth == widthDefinition.maximum,
+	"the width control should derive its range from the settings definition"
+)
+assert(
+	previewBadge.resizeBounds[1] == widthDefinition.minimum
+		and previewBadge.resizeBounds[2] == heightDefinition.minimum
+		and previewBadge.resizeBounds[3] == widthDefinition.maximum
+		and previewBadge.resizeBounds[4] == heightDefinition.maximum,
+	"preview resize bounds should derive from the settings definitions"
+)
 previewBadge.centerX = previewHealthBar:GetRight() + previewBadge:GetWidth() / 2 + 11
 previewBadge.centerY = 3
 previewHealthBar.centerX = 0
@@ -1285,7 +966,7 @@ end
 addon.ConfigTest.flush()
 applyCount = 0
 local fontControl = FindControl("Font size")
-local queriesBeforeStyling = threatQueryCount
+local queriesBeforeStyling = mock.threatQueryCount
 fontControl.slider.scripts.OnValueChanged(fontControl.slider, 15)
 fontControl.slider.scripts.OnValueChanged(fontControl.slider, 16)
 fontControl.slider.scripts.OnValueChanged(fontControl.slider, 17)
@@ -1300,7 +981,7 @@ fontControl.slider.scripts.OnValueChanged(fontControl.slider, 18)
 fontControl.slider.scripts.OnMouseUp(fontControl.slider)
 assert(applyCount == 2, "interaction completion should commit the final value immediately")
 assert(
-	threatQueryCount == queriesBeforeStyling,
+	mock.threatQueryCount == queriesBeforeStyling,
 	"styling interactions should not increase threat queries while previewing"
 )
 addon.ApplyDisplaySettings = originalApplyDisplaySettings
@@ -1346,7 +1027,7 @@ AssertNear(colorBadge.borderColor[1], 0.11, "semantic borders should follow text
 
 local styledOverlay = disabledPlate.ThreatPlatingOverlay
 local anchorChangesBeforeStyle = styledOverlay.clearAllPointsCount
-local queriesBeforeDirectStyle = threatQueryCount
+local queriesBeforeDirectStyle = mock.threatQueryCount
 addon.db.fontPreset = "combat"
 addon.db.fontSize = 9
 addon.db.backgroundColor = { 0.12, 0.23, 0.34, 0.45 }
@@ -1358,7 +1039,10 @@ assert(
 	styledOverlay.clearAllPointsCount == anchorChangesBeforeStyle,
 	"style-only changes should not re-anchor pooled overlays"
 )
-assert(threatQueryCount == queriesBeforeDirectStyle, "direct restyling should not query threat")
+assert(
+	mock.threatQueryCount == queriesBeforeDirectStyle,
+	"direct restyling should not query threat"
+)
 
 addon.db.badgeHeight = 50
 addon.db.badgeWidth = 44
@@ -1386,22 +1070,44 @@ AssertNear(addon.db.safeColor[1], pickerOriginal[1], "picker cancellation should
 AssertNear(addon.db.safeColor[2], pickerOriginal[2], "picker cancellation should restore green")
 AssertNear(addon.db.safeColor[3], pickerOriginal[3], "picker cancellation should restore blue")
 
+local resetApplyKinds = {}
+local applyBeforeResetTests = addon.ApplyDisplaySettings
+addon.ApplyDisplaySettings = function(changeKind)
+	resetApplyKinds[#resetApplyKinds + 1] = changeKind
+	return applyBeforeResetTests(changeKind)
+end
+
 addon.db.offsetX = 120
 addon.db.palette = "custom"
 addon:ResetLayoutSettings()
 assert(addon.db.offsetX == 6, "Reset Layout should restore placement")
 assert(addon.db.palette == "custom", "Reset Layout should preserve appearance")
+assert(
+	#resetApplyKinds == 1 and resetApplyKinds[1] == "layout",
+	"Reset Layout should perform one layout application"
+)
+resetApplyKinds = {}
 addon.db.offsetX = 77
 addon:ResetAppearanceSettings()
 assert(addon.db.fontSize == 14, "Reset Appearance should restore typography")
 assert(addon.db.palette == "default", "Reset Appearance should restore the default palette")
 assert(addon.db.offsetX == 77, "Reset Appearance should preserve layout")
+assert(
+	#resetApplyKinds == 1 and resetApplyKinds[1] == "style",
+	"Reset Appearance should perform one style application"
+)
+resetApplyKinds = {}
 addon:SetEnabled(false)
 addon:ResetAllSettings()
 assert(addon.enabled, "Reset All should restore enabled state")
 assert(addon.db.offsetX == 6, "Reset All should restore layout")
 assert(addon.db.fontSize == 14, "Reset All should restore appearance")
+assert(
+	#resetApplyKinds == 1 and resetApplyKinds[1] == "all",
+	"Reset All should perform one all-settings application"
+)
 
+resetApplyKinds = {}
 addon.db.offsetX = 133
 addon:SetEnabled(false)
 addon.ConfigTest.restoreSession()
@@ -1409,6 +1115,11 @@ assert(addon.db.offsetX == 6, "Revert should restore the editor-open layout snap
 assert(addon.enabled, "Revert should restore the editor-open enabled state")
 assert(window:GetWidth() == 900, "Revert should not resize the configurator")
 assert(window:GetHeight() == 700, "Revert should not move configurator geometry")
+assert(
+	#resetApplyKinds == 1 and resetApplyKinds[1] == "all",
+	"Revert should perform one all-settings application"
+)
+addon.ApplyDisplaySettings = applyBeforeResetTests
 
 addon.ConfigTest.openColorPicker("backgroundColor", true)
 local externalPickerOwner = {}
@@ -1444,33 +1155,54 @@ assert(addon.db.offsetX == 21, "title X should keep live changes")
 assert(not ColorPickerFrame:IsShown(), "closing should end Threat Plating's picker session")
 assert(not addon.ConfigTest.getPickerOwner(), "closing should clear picker ownership")
 
-addon.OpenConfig()
 local doneButton = FindFrame(function(frame)
 	return frame.parent == window and frame.text == "Done"
 end)
 assert(doneButton, "footer Done button should exist")
-addon.db.offsetX = 22
-doneButton.scripts.OnClick(doneButton)
-assert(not addon.configPreviewActive, "footer Done should clear preview mode")
-assert(addon.db.offsetX == 22, "footer Done should keep live changes")
+local closeCases = {
+	{
+		label = "footer Done",
+		offsetX = 22,
+		close = function()
+			doneButton.scripts.OnClick(doneButton)
+		end,
+	},
+	{
+		label = "Escape",
+		offsetX = 23,
+		close = function()
+			window:Hide()
+		end,
+	},
+	{
+		label = "slash close",
+		offsetX = 24,
+		close = function()
+			SlashCmdList.THREATPLATING("close")
+		end,
+	},
+	{
+		label = "slash toggle",
+		offsetX = 25,
+		close = function()
+			SlashCmdList.THREATPLATING("")
+		end,
+	},
+}
 
-addon.OpenConfig()
-addon.db.offsetX = 23
-window:Hide()
-assert(not addon.configPreviewActive, "Escape-style frame hiding should clear preview mode")
-assert(addon.db.offsetX == 23, "Escape should keep live changes")
-
-addon.OpenConfig()
-addon.db.offsetX = 24
-SlashCmdList.THREATPLATING("close")
-assert(not addon.configPreviewActive, "slash close should clear preview mode")
-assert(addon.db.offsetX == 24, "slash close should keep live changes")
-
-addon.OpenConfig()
-addon.db.offsetX = 25
-SlashCmdList.THREATPLATING("")
-assert(not addon.configPreviewActive, "slash toggle should clear preview mode")
-assert(addon.db.offsetX == 25, "slash toggle should keep live changes")
+for _, closeCase in ipairs(closeCases) do
+	addon.OpenConfig()
+	addon.db.offsetX = closeCase.offsetX
+	closeCase.close()
+	assert(
+		not addon.configPreviewActive,
+		closeCase.label .. " should clear preview mode"
+	)
+	assert(
+		addon.db.offsetX == closeCase.offsetX,
+		closeCase.label .. " should keep live changes"
+	)
+end
 
 local settingsCheck = FindFrame(function(frame)
 	return frame.frameType == "CheckButton"

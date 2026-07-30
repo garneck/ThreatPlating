@@ -11,6 +11,7 @@ $runtimeFiles = @(
 	"ThreatPlating.toc",
 	"Init.lua",
 	"Threat.lua",
+	"Display.lua",
 	"Nameplates.lua",
 	"Config.lua"
 )

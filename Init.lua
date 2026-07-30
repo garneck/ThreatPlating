@@ -46,64 +46,6 @@ local SECTION_KEYS = {
 	"colors",
 }
 
-addon.defaults = {
-	schemaVersion = SCHEMA_VERSION,
-	enabled = true,
-	anchorPoint = "LEFT",
-	relativePoint = "RIGHT",
-	offsetX = 6,
-	offsetY = 0,
-	badgeWidth = 44,
-	badgeHeight = 18,
-	autoWidth = true,
-	padding = 7,
-	fontSize = 14,
-	fontPreset = "nameplate",
-	shadow = true,
-	backgroundColor = { 0.025, 0.025, 0.025, 0.90 },
-	borderMode = "semantic",
-	borderColor = { 0.65, 0.65, 0.65, 1 },
-	palette = "default",
-	safeColor = { 0.35, 1, 0.35 },
-	dangerColor = { 1, 0.32, 0.26 },
-	warningColor = { 1, 0.62, 0.12 },
-	collapsedSections = {
-		general = false,
-		position = false,
-		typography = false,
-		appearance = false,
-		colors = false,
-	},
-	windowWidth = 780,
-	windowHeight = 620,
-	windowOffsetX = 0,
-	windowOffsetY = 0,
-}
-
-addon.layoutSettingKeys = {
-	"anchorPoint",
-	"relativePoint",
-	"offsetX",
-	"offsetY",
-	"badgeWidth",
-	"badgeHeight",
-	"autoWidth",
-	"padding",
-}
-
-addon.appearanceSettingKeys = {
-	"fontSize",
-	"fontPreset",
-	"shadow",
-	"backgroundColor",
-	"borderMode",
-	"borderColor",
-	"palette",
-	"safeColor",
-	"dangerColor",
-	"warningColor",
-}
-
 local function Clamp(value, minimum, maximum)
 	return math.max(minimum, math.min(maximum, value))
 end
@@ -132,6 +74,220 @@ local function CopyValue(value)
 		copy[key] = CopyValue(child)
 	end
 	return copy
+end
+
+local SETTING_DEFINITIONS = {
+	{
+		key = "enabled",
+		default = true,
+		valueType = "boolean",
+	},
+	{
+		key = "anchorPoint",
+		default = "LEFT",
+		valueType = "enum",
+		values = VALID_POINTS,
+		group = "layout",
+	},
+	{
+		key = "relativePoint",
+		default = "RIGHT",
+		valueType = "enum",
+		values = VALID_POINTS,
+		group = "layout",
+	},
+	{
+		key = "offsetX",
+		default = 6,
+		valueType = "number",
+		minimum = -300,
+		maximum = 300,
+		step = 1,
+		integer = true,
+		group = "layout",
+	},
+	{
+		key = "offsetY",
+		default = 0,
+		valueType = "number",
+		minimum = -300,
+		maximum = 300,
+		step = 1,
+		integer = true,
+		group = "layout",
+	},
+	{
+		key = "badgeWidth",
+		default = 44,
+		valueType = "number",
+		minimum = 36,
+		maximum = 160,
+		step = 1,
+		integer = true,
+		group = "layout",
+	},
+	{
+		key = "badgeHeight",
+		default = 18,
+		valueType = "number",
+		minimum = 14,
+		maximum = 64,
+		step = 1,
+		integer = true,
+		group = "layout",
+	},
+	{
+		key = "autoWidth",
+		default = true,
+		valueType = "boolean",
+		group = "layout",
+	},
+	{
+		key = "padding",
+		default = 7,
+		valueType = "number",
+		minimum = 0,
+		maximum = 32,
+		step = 1,
+		integer = true,
+		group = "layout",
+	},
+	{
+		key = "fontSize",
+		default = 14,
+		valueType = "number",
+		minimum = 8,
+		maximum = 32,
+		step = 1,
+		integer = true,
+		group = "appearance",
+	},
+	{
+		key = "fontPreset",
+		default = "nameplate",
+		valueType = "enum",
+		values = VALID_FONT_PRESETS,
+		group = "appearance",
+	},
+	{
+		key = "shadow",
+		default = true,
+		valueType = "boolean",
+		group = "appearance",
+	},
+	{
+		key = "backgroundColor",
+		default = { 0.025, 0.025, 0.025, 0.90 },
+		valueType = "color",
+		components = 4,
+		group = "appearance",
+	},
+	{
+		key = "borderMode",
+		default = "semantic",
+		valueType = "enum",
+		values = VALID_BORDER_MODES,
+		group = "appearance",
+	},
+	{
+		key = "borderColor",
+		default = { 0.65, 0.65, 0.65, 1 },
+		valueType = "color",
+		components = 4,
+		group = "appearance",
+	},
+	{
+		key = "palette",
+		default = "default",
+		valueType = "enum",
+		values = VALID_PALETTES,
+		group = "appearance",
+	},
+	{
+		key = "safeColor",
+		default = { 0.35, 1, 0.35 },
+		valueType = "color",
+		components = 3,
+		group = "appearance",
+	},
+	{
+		key = "dangerColor",
+		default = { 1, 0.32, 0.26 },
+		valueType = "color",
+		components = 3,
+		group = "appearance",
+	},
+	{
+		key = "warningColor",
+		default = { 1, 0.62, 0.12 },
+		valueType = "color",
+		components = 3,
+		group = "appearance",
+	},
+	{
+		key = "collapsedSections",
+		default = {
+			general = false,
+			position = false,
+			typography = false,
+			appearance = false,
+			colors = false,
+		},
+		valueType = "sections",
+	},
+	{
+		key = "windowWidth",
+		default = 780,
+		valueType = "number",
+		minimum = 520,
+		maximum = 1000,
+		step = 1,
+		integer = true,
+	},
+	{
+		key = "windowHeight",
+		default = 620,
+		valueType = "number",
+		minimum = 520,
+		maximum = 800,
+		step = 1,
+		integer = true,
+	},
+	{
+		key = "windowOffsetX",
+		default = 0,
+		valueType = "number",
+		minimum = -4000,
+		maximum = 4000,
+		step = 1,
+		integer = true,
+	},
+	{
+		key = "windowOffsetY",
+		default = 0,
+		valueType = "number",
+		minimum = -2400,
+		maximum = 2400,
+		step = 1,
+		integer = true,
+	},
+}
+
+addon.defaults = {
+	schemaVersion = SCHEMA_VERSION,
+}
+addon.settingDefinitions = {}
+addon.layoutSettingKeys = {}
+addon.appearanceSettingKeys = {}
+
+for _, definition in ipairs(SETTING_DEFINITIONS) do
+	addon.settingDefinitions[definition.key] = definition
+	addon.defaults[definition.key] = CopyValue(definition.default)
+	if definition.group == "layout" then
+		addon.layoutSettingKeys[#addon.layoutSettingKeys + 1] = definition.key
+	elseif definition.group == "appearance" then
+		addon.appearanceSettingKeys[#addon.appearanceSettingKeys + 1] = definition.key
+	end
 end
 
 local function CopyDefault(target, key)
@@ -212,25 +368,23 @@ end
 local function ValidateDatabase(target)
 	MigrateDatabase(target)
 
-	ValidateBoolean(target, "enabled")
-	ValidateEnum(target, "anchorPoint", VALID_POINTS)
-	ValidateEnum(target, "relativePoint", VALID_POINTS)
-	ValidateNumber(target, "offsetX", -300, 300, true)
-	ValidateNumber(target, "offsetY", -300, 300, true)
-	ValidateNumber(target, "badgeWidth", 36, 160, true)
-	ValidateNumber(target, "badgeHeight", 14, 64, true)
-	ValidateBoolean(target, "autoWidth")
-	ValidateNumber(target, "padding", 0, 32, true)
-	ValidateNumber(target, "fontSize", 8, 32, true)
-	ValidateEnum(target, "fontPreset", VALID_FONT_PRESETS)
-	ValidateBoolean(target, "shadow")
-	ValidateColor(target, "backgroundColor", 4)
-	ValidateEnum(target, "borderMode", VALID_BORDER_MODES)
-	ValidateColor(target, "borderColor", 4)
-	ValidateEnum(target, "palette", VALID_PALETTES)
-	ValidateColor(target, "safeColor", 3)
-	ValidateColor(target, "dangerColor", 3)
-	ValidateColor(target, "warningColor", 3)
+	for _, definition in ipairs(SETTING_DEFINITIONS) do
+		if definition.valueType == "boolean" then
+			ValidateBoolean(target, definition.key)
+		elseif definition.valueType == "number" then
+			ValidateNumber(
+				target,
+				definition.key,
+				definition.minimum,
+				definition.maximum,
+				definition.integer
+			)
+		elseif definition.valueType == "enum" then
+			ValidateEnum(target, definition.key, definition.values)
+		elseif definition.valueType == "color" then
+			ValidateColor(target, definition.key, definition.components)
+		end
+	end
 
 	if type(target.collapsedSections) ~= "table" then
 		CopyDefault(target, "collapsedSections")
@@ -241,11 +395,6 @@ local function ValidateDatabase(target)
 			end
 		end
 	end
-
-	ValidateNumber(target, "windowWidth", 520, 1000, true)
-	ValidateNumber(target, "windowHeight", 520, 800, true)
-	ValidateNumber(target, "windowOffsetX", -4000, 4000, true)
-	ValidateNumber(target, "windowOffsetY", -2400, 2400, true)
 
 	local viewportWidth, viewportHeight = GetViewportSize()
 	local maximumOffsetX = math.max(0, (viewportWidth - target.windowWidth) / 2)
@@ -264,6 +413,21 @@ addon.enabled = addon.db.enabled
 addon.Clamp = Clamp
 addon.Round = Round
 addon.CopyValue = CopyValue
+addon.NormalizeSettingValue = function(key, value)
+	local definition = addon.settingDefinitions[key]
+	if not definition or definition.valueType ~= "number" then
+		return value
+	end
+	if not IsFiniteNumber(value) then
+		value = definition.default
+	end
+
+	value = Clamp(value, definition.minimum, definition.maximum)
+	if definition.integer then
+		value = Round(value)
+	end
+	return value
+end
 
 local function AdoptLoadedDatabase()
 	local loadedDB = ThreatPlatingDB
@@ -315,6 +479,37 @@ function addon:CaptureDisplaySettings()
 	return snapshot
 end
 
+local function Print(message)
+	print("|cff65d96eThreat Plating:|r " .. message)
+end
+
+local function SetEnabledValue(self, enabled)
+	self.enabled = enabled and true or false
+	self.db.enabled = self.enabled
+end
+
+local function RefreshEnabledDisplay(self)
+	if self.enabled then
+		self:ScanVisibleNameplates()
+		self.UpdateAllNameplates()
+	else
+		self.HideAllNameplates()
+	end
+end
+
+local function RefreshConfig(self)
+	if self.RefreshConfig then
+		self.RefreshConfig()
+	end
+end
+
+local function ApplySettingsChange(self, changeKind)
+	if self.ApplyDisplaySettings then
+		self.ApplyDisplaySettings(changeKind)
+	end
+	RefreshConfig(self)
+end
+
 function addon:RestoreDisplaySettings(snapshot)
 	if type(snapshot) ~= "table" then
 		return
@@ -322,60 +517,48 @@ function addon:RestoreDisplaySettings(snapshot)
 
 	CopyKeys(snapshot, self.db, self.layoutSettingKeys)
 	CopyKeys(snapshot, self.db, self.appearanceSettingKeys)
-	self:SetEnabled(snapshot.enabled)
-	self.ApplyDisplaySettings("all")
-end
-
-local function Print(message)
-	print("|cff65d96eThreat Plating:|r " .. message)
+	local enabledChanged = self.enabled ~= (snapshot.enabled and true or false)
+	SetEnabledValue(self, snapshot.enabled)
+	if self.ApplyDisplaySettings then
+		self.ApplyDisplaySettings("all")
+	end
+	if enabledChanged then
+		RefreshEnabledDisplay(self)
+	end
+	RefreshConfig(self)
 end
 
 function addon:SetEnabled(enabled)
-	self.enabled = enabled and true or false
-	self.db.enabled = self.enabled
+	SetEnabledValue(self, enabled)
+	RefreshEnabledDisplay(self)
+	RefreshConfig(self)
+end
 
-	if self.enabled then
-		self:ScanVisibleNameplates()
-		self.UpdateAllNameplates()
-	else
-		self.HideAllNameplates()
-	end
-
-	if self.RefreshConfig then
-		self.RefreshConfig()
-	end
+local function ResetSettings(self, keys, changeKind)
+	CopyKeys(self.defaults, self.db, keys)
+	ApplySettingsChange(self, changeKind)
 end
 
 function addon:ResetLayoutSettings()
-	CopyKeys(self.defaults, self.db, self.layoutSettingKeys)
-	if self.ApplyDisplaySettings then
-		self.ApplyDisplaySettings("layout")
-	end
-	if self.RefreshConfig then
-		self.RefreshConfig()
-	end
+	ResetSettings(self, self.layoutSettingKeys, "layout")
 end
 
 function addon:ResetAppearanceSettings()
-	CopyKeys(self.defaults, self.db, self.appearanceSettingKeys)
-	if self.ApplyDisplaySettings then
-		self.ApplyDisplaySettings("style")
-	end
-	if self.RefreshConfig then
-		self.RefreshConfig()
-	end
+	ResetSettings(self, self.appearanceSettingKeys, "style")
 end
 
 function addon:ResetAllSettings()
 	CopyKeys(self.defaults, self.db, self.layoutSettingKeys)
 	CopyKeys(self.defaults, self.db, self.appearanceSettingKeys)
-	self:SetEnabled(self.defaults.enabled)
+	local enabledChanged = self.enabled ~= self.defaults.enabled
+	SetEnabledValue(self, self.defaults.enabled)
 	if self.ApplyDisplaySettings then
 		self.ApplyDisplaySettings("all")
 	end
-	if self.RefreshConfig then
-		self.RefreshConfig()
+	if enabledChanged then
+		RefreshEnabledDisplay(self)
 	end
+	RefreshConfig(self)
 end
 
 -- Keep the historical slash-command helper as a compatibility alias.

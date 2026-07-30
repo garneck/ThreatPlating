@@ -35,10 +35,13 @@ references in `README.md`, and only then change `## Interface`.
 
 - `Init.lua`: addon identity and slash commands.
 - `Threat.lua`: pure threat math, scan decision, and compact number formatting.
+- `Display.lua`: shared palette, typography, backdrop, and badge rendering helpers.
 - `Nameplates.lua`: Blizzard API calls, roster cache, plate lifecycle, polling, and rendering.
 - `Config.lua`: saved layout editor, draggable/resizable preview, Settings category, and AddOn
   Compartment integration.
 - `tests/test_threat.lua`: Lua 5.1 tests for all pure logic.
+- `tests/test_database.lua`: isolated saved-variable migration and persistence coverage.
+- `tests/wow_mock.lua`: fresh mocked WoW globals and mutable runtime state per fixture.
 - `tests/test_runtime.lua`: mocked nameplate lifecycle smoke test.
 
 Keep calculations in `Threat.lua` so they remain runnable outside WoW. Keep all frame and unit-token
@@ -132,7 +135,7 @@ Use the project wrapper for every push from this checkout:
 
 The wrapper pushes the current branch and, only after the remote branch matches the pushed commit,
 replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directory. It installs the
-TOC and four runtime Lua files from the pushed commit, so uncommitted work is never deployed by a
+TOC and five runtime Lua files from the pushed commit, so uncommitted work is never deployed by a
 push. If a push is performed without the wrapper, immediately run `.\tools\install.ps1 -Revision
 HEAD`.
 

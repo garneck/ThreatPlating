@@ -112,8 +112,8 @@ Run all local checks from PowerShell:
 .\tools\check.ps1
 ```
 
-The checks require Lua 5.1, `luac`, and `luacheck`. They cover pure threat math plus a mocked
-nameplate lifecycle smoke test.
+The checks require Lua 5.1, `luac`, and `luacheck`. They cover pure threat math, database
+migration/persistence, and a mocked nameplate/configurator lifecycle smoke test.
 
 See [AGENTS.md](AGENTS.md) for architecture and contribution invariants, and
 [docs/TESTING.md](docs/TESTING.md) for the in-game test matrix.
