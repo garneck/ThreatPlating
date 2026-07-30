@@ -20,25 +20,49 @@ the installer with the pushed revision so the game never receives uncommitted fi
 ## Configurator
 
 1. Run `/threatplating` with several enemy NPC plates visible.
-2. Confirm the window is draggable and resizable.
-3. Drag the sample badge to every side of the mock health bar and into its center.
-4. Resize the badge from its lower-right grip.
-5. Toggle automatic width and the high-contrast background.
-6. Change the font size, enabled state, and anchor preset buttons.
-7. Close and reopen through the slash command, Options → AddOns, and AddOn Compartment.
-8. Reload the UI.
+2. Resize the window to 520 × 520, 1000 × 800, and several sizes around the wide/narrow breakpoint.
+3. Repeat at the lowest supported UI scale and verify an old off-screen window position recovers.
+4. Scroll every expanded controls section, then collapse and expand each section.
+5. Target visible enemies using different current nameplate sizes, textures, colors, name
+   placement, and health-text options. Switch targets while the editor remains open, then move all
+   eligible plates out of range.
+6. Select every Tank/Non-tank and Safe/Danger/Warning scenario combination.
+7. Use all nine anchor presets. Drag the sample badge around the bar and enter exact X/Y values.
+8. Resize the badge from its lower-right grip, then change font size independently.
+9. Exercise every slider by dragging and by keyboard entry, including invalid and boundary values.
+10. Try automatic width, padding, all font presets, text shadow, background RGB/opacity, all border
+   modes, all palettes, and custom semantic colors.
+11. Open and cancel the color picker, then open another addon's picker before closing this editor.
+12. Use Reset Layout, Reset Appearance, Reset All, and Revert. Move and resize the editor before
+    Revert.
+13. Close and reopen through the title X, footer Done, Escape, slash `close`, slash toggle,
+    Options → AddOns, and AddOn Compartment.
+14. Reload the UI.
 
 Expected:
 
-- All currently visible eligible plates show `+12.3k` while the configurator is open.
-- The status line identifies tank or non-tank colors, and the sample is green for a tank or red for
-  a non-tank.
-- Real plates update after every completed drag and continuously during resize.
+- All currently visible eligible plates show the selected signed sample and semantic color while
+  the configurator is open.
+- Wide layout places preview beside controls; narrow layout keeps preview above a scrollable
+  controls pane. Reflow does not lose state or duplicate controls.
+- The preview mirrors the current visible target plate and follows target/style changes without
+  reparenting or modifying that Blizzard frame. It uses another eligible visible plate when the
+  target has none, then the verified 128 × 20 fallback when no suitable plate exists.
+- The status line identifies the detected role independently from the ephemeral preview role.
+- Real plates update no more than 20 times per second during continuous edits and commit the final
+  value immediately.
+- Badge resizing never changes font size, and font changes never change badge height.
+- Custom colors retain the fixed safe, danger, and warning meanings.
+- Canceling restores the pre-picker color. Closing Threat Plating does not close a newer picker
+  session owned by another addon.
+- Reset actions apply immediately. Revert restores the session-open display and enabled state but
+  preserves the editor's current size and position.
 - Closing the configurator restores real threat values or hides plates without threat.
-- Badge layout and configurator size/position survive `/reload`.
-- Reset restores a 44 × 18 badge, 14-point font, and a 6-pixel gap to the health bar's right side.
+- Badge layout, appearance, collapsed sections, and configurator geometry survive `/reload`.
+- Reset All restores a 44 × 18 badge, 14-point Nameplate font, seven-pixel horizontal padding,
+  dark 90%-opaque background, semantic border, default colors, and a six-pixel right-side gap.
 - Configuring never makes Blizzard nameplates draggable or mouse-interactive.
-- The title X, footer Close button, Escape, `/threatplating close`, and slash toggle all close the
+- The title X, footer Done button, Escape, `/threatplating close`, and slash toggle all close the
   window, even after dragging the preview badge against every canvas edge.
 
 ## Solo combat

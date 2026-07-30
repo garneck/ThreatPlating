@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.5.0 - 2026-07-30
+
+- Replace the fixed configurator with a responsive Blizzard-native editor that reflows between
+  side-by-side and stacked layouts from 520 × 520 through 1000 × 800.
+- Derive the preview baseline from the current visible target nameplate when available, including
+  its health texture/color/fill, dimensions, unit-name text, health text, fonts, colors, and text
+  placement; follow target changes while the editor remains open.
+- Add a pinned live preview, tank/non-tank and safe/danger/warning scenarios, nine health-bar anchor
+  presets, exact numeric entry, independent badge and font sizing, and a scrollable controls pane.
+- Add stock Blizzard font presets, text shadow, configurable padding, background RGB/opacity,
+  semantic/custom/off borders, three built-in threat palettes, and fully custom semantic colors.
+- Add versioned saved-variable migration and independent validation for every boolean, enum,
+  numeric range, color component, collapsed section, and editor geometry field.
+- Add Reset Layout, Reset Appearance, Reset All, Revert, and Done actions. Ordinary closing keeps
+  live changes; Revert restores the display and enabled-state snapshot captured when the editor
+  opened.
+- Keep Options → AddOns lightweight with a synchronized enable control, detected-role summary, and
+  Open Editor action.
+- Coalesce continuous layout and style changes to 20 real-overlay restyles per second, commit final
+  interaction values immediately, and avoid additional threat queries during styling.
+- Track ownership of Blizzard's shared color picker and clean up only Threat Plating's active
+  session.
+- Preserve the 0.4.1 pooled-nameplate, targeted-refresh, restricted-query, and allocation
+  reliability work.
+
+## 0.4.1 - 2026-07-30
+
+- Detach an existing NPC overlay immediately when Blizzard reassigns its pooled nameplate to a
+  player or player-controlled unit, rather than waiting for the fallback reconciliation poll.
+- Refresh only the affected visible plate after nameplate-specific threat events while retaining
+  the independent 0.20-second correctness fallback.
+- Eliminate per-scan contender-list allocation, reuse pooled overlay records and hide hooks, and
+  skip unchanged text, width, and color assignments.
+- Treat any truthy Classic main-tank assignment result as an explicit tank signal.
+- Add adversarial runtime coverage for restricted threat queries, direct eligible-to-ineligible
+  plate recycling, targeted refresh query counts, and unchanged render-state caching.
+
 ## 0.4.0 - 2026-07-30
 
 - Show an orange warning when the player has surpassed the enemy's current target in raw threat but

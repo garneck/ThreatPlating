@@ -26,19 +26,21 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.4.0` addon targeting TBC Anniversary client
+This repository contains a working `0.5.0` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
 
-- Nameplate and threat events request refreshes capped at 20 times per second.
+- Nameplate-specific threat events refresh only the affected visible plate, capped at 20 times per
+  second.
 - An independent 0.20-second poll catches missed or coalesced events and reconciles recycled
   nameplates even while threat events are firing continuously.
 
 When you are below the lead, the addon uses the API's raw percentage to infer the leader even when
 that actor does not have a party or raid token. When you are leading—or have zero threat—it queries
 party/raid members, their pets, your pet, and the enemy's current target. Aggro ownership does not
-override the raw-threat comparison during taunts or fixates.
+override the raw-threat comparison during taunts or fixates. Contender scans retain only the
+highest raw threat, avoiding per-plate list allocation.
 
 ## Install for development
 
@@ -64,13 +66,28 @@ Commands:
 - `/threatplating close`
 
 The configurator is also available from **Options → AddOns → Threat Plating** and the AddOn
-Compartment. Its window can be moved and resized. Inside it, drag the sample badge relative to the
-current 2.5.6 nameplate health bar and resize it from the lower-right corner. Position, size, font
-size, high-contrast background visibility, automatic width, enabled state, and window placement are
-saved account-wide. The preview and `/threatplating status` report the currently detected color
-mode.
+Compartment. It reflows from a stacked layout at narrow sizes to preview-and-controls columns at
+wide sizes. The window, preview badge, and badge resize grip remain directly movable.
 
-Close it with the title-bar X, the footer Close button, Escape, `/threatplating close`, or by running
+The live editor provides:
+
+- A baseline mirrored from the current visible target plate—or another eligible visible plate—
+  including its health-bar dimensions, texture/color/fill, labels, fonts, and label placement. The
+  verified 128 × 20 modern nameplate remains the fallback when no suitable plate is visible.
+- Tank/non-tank and safe/danger/warning preview scenarios, also shown on eligible real plates.
+- Nine health-bar anchor presets, direct badge dragging, and exact X/Y entry.
+- Independent minimum width, height, automatic width, horizontal padding, and 8–32 point text.
+- Nameplate, UI, and combat-number Blizzard font presets plus optional text shadow.
+- Background RGB/opacity and semantic, custom, or disabled borders.
+- Default, Blue/Vermilion/Yellow, Cyan/Magenta/Yellow, and custom threat palettes.
+- Reset Layout, Reset Appearance, Reset All, Revert, and Done actions.
+
+Changes apply live and save account-wide. Ordinary closing keeps them. Revert restores the display
+settings and enabled state captured when the current editor session opened without moving or
+resizing the editor. Options → AddOns intentionally stays compact: it synchronizes the enabled
+state, reports current role/status, and opens the full editor.
+
+Close it with the title-bar X, the footer Done button, Escape, `/threatplating close`, or by running
 `/threatplating` again.
 
 While the configurator is open, eligible nameplates currently visible in the world show the same
@@ -112,3 +129,4 @@ The implementation was checked against the extracted UI source for live build `2
 - [TBC Anniversary default nameplate frame](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_NamePlates/Blizzard_NamePlateUnitFrame.lua)
 - [Frame movement and resize APIs](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/SimpleFrameAPIDocumentation.lua)
 - [AddOn Settings canvas integration](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_Settings_Shared/Blizzard_ImplementationReadme.lua)
+- [Classic color-picker ownership API](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_FrameXML/Classic/ColorPickerFrame.lua)

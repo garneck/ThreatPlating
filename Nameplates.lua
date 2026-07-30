@@ -2,20 +2,60 @@ local _, addon = ...
 
 local POLL_INTERVAL = addon.updateInterval
 local EVENT_REFRESH_DELAY = addon.eventRefreshDelay
+local Threat = addon.Threat
+local GetNamePlateForUnit = C_NamePlate.GetNamePlateForUnit
+local GetNamePlates = C_NamePlate.GetNamePlates
+local GetTime = GetTime
+local UnitCanAttack = UnitCanAttack
+local UnitDetailedThreatSituation = UnitDetailedThreatSituation
+local UnitExists = UnitExists
+local UnitIsPlayer = UnitIsPlayer
+local UnitIsUnit = UnitIsUnit
+local UnitPlayerControlled = UnitPlayerControlled
 local BACKDROP = {
 	bgFile = "Interface\\Buttons\\WHITE8X8",
 	edgeFile = "Interface\\Buttons\\WHITE8X8",
 	edgeSize = 1,
 }
+local FONT_OBJECTS = {
+	combat = "NumberFontNormal",
+	nameplate = "SystemFont_NamePlate_Outlined",
+	ui = "GameFontNormal",
+}
+local PALETTES = {
+	blue = {
+		safe = { 0, 0.447, 0.698 },
+		danger = { 0.835, 0.369, 0 },
+		warning = { 0.941, 0.894, 0.259 },
+	},
+	cyan = {
+		safe = { 0, 0.85, 0.85 },
+		danger = { 1, 0.25, 0.75 },
+		warning = { 1, 0.80, 0 },
+	},
+	default = {
+		safe = { 0.35, 1, 0.35 },
+		danger = { 1, 0.32, 0.26 },
+		warning = { 1, 0.62, 0.12 },
+	},
+}
 
 local activeNameplates = {}
 local threatSources = {}
-local EMPTY_THREATS = {}
 local elapsedSincePoll = 0
 local elapsedSinceRefresh = 0
 local refreshRequested = true
+local refreshAllRequested = true
 local scanRevision = 0
 local eventFrame = CreateFrame("Frame")
+local referenceVisual = {}
+
+local function IsFiniteNumber(value)
+	return type(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+end
 
 local function GetDominantTalentTree()
 	if type(GetTalentTabInfo) ~= "function" then
@@ -79,11 +119,11 @@ local function DetectPlayerTankRole()
 
 	local isMainTank = false
 	if type(GetPartyAssignment) == "function" then
-		isMainTank = GetPartyAssignment("MAINTANK", "player", true) == true
+		isMainTank = GetPartyAssignment("MAINTANK", "player", true) and true or false
 	end
 
 	local _, classToken = UnitClass("player")
-	return addon.Threat.IsTankRole(
+	return Threat.IsTankRole(
 		classToken,
 		GetDominantTalentTree(),
 		GetActiveFormSpellID(),
@@ -100,6 +140,7 @@ function addon:RefreshPlayerRole()
 
 	self.playerIsTank = isTank
 	refreshRequested = true
+	refreshAllRequested = true
 
 	if self.RefreshConfig then
 		self.RefreshConfig()
@@ -140,6 +181,31 @@ local function GetHealthBarAnchor(nameplate)
 	return nameplate
 end
 
+local function GetVisualHealthBar(nameplate)
+	local unitFrame = GetUnitFrame(nameplate)
+	if unitFrame then
+		if unitFrame.HealthBarsContainer
+			and unitFrame.HealthBarsContainer.healthBar
+		then
+			return unitFrame.HealthBarsContainer.healthBar
+		end
+
+		if unitFrame.healthBar then
+			return unitFrame.healthBar
+		end
+
+		if unitFrame.Health then
+			return unitFrame.Health
+		end
+	end
+
+	if nameplate and nameplate.unitFramePlater and nameplate.unitFramePlater.healthBar then
+		return nameplate.unitFramePlater.healthBar
+	end
+
+	return GetHealthBarAnchor(nameplate)
+end
+
 local function ApplyAnchor(overlay, nameplate)
 	local anchor = GetHealthBarAnchor(nameplate)
 	local db = addon.db
@@ -157,6 +223,15 @@ local function ApplyAnchor(overlay, nameplate)
 	overlay:SetFrameLevel(math.max(nameplate:GetFrameLevel(), anchor:GetFrameLevel()) + 20)
 end
 
+local function ApplyOverlayLayout(overlay, nameplate)
+	if overlay.layoutStyleRevision ~= addon.layoutRevision then
+		overlay.layoutStyleRevision = addon.layoutRevision
+		overlay:SetHeight(addon.db.badgeHeight)
+	end
+
+	ApplyAnchor(overlay, nameplate)
+end
+
 local function ApplyOverlayStyle(overlay)
 	if overlay.styleRevision == addon.styleRevision then
 		return
@@ -164,14 +239,39 @@ local function ApplyOverlayStyle(overlay)
 
 	local db = addon.db
 	overlay.styleRevision = addon.styleRevision
-	overlay:SetHeight(db.badgeHeight)
+	overlay.text:SetFontObject(FONT_OBJECTS[db.fontPreset] or FONT_OBJECTS.nameplate)
 	overlay.text:SetTextHeight(db.fontSize)
 
-	if db.showBackground then
-		overlay:SetBackdropColor(0.025, 0.025, 0.025, 0.90)
+	if db.shadow then
+		overlay.text:SetShadowColor(0, 0, 0, 1)
+		overlay.text:SetShadowOffset(1, -1)
 	else
-		overlay:SetBackdropColor(0, 0, 0, 0)
+		overlay.text:SetShadowColor(0, 0, 0, 0)
+		overlay.text:SetShadowOffset(0, 0)
+	end
+
+	overlay:SetBackdropColor(
+		db.backgroundColor[1],
+		db.backgroundColor[2],
+		db.backgroundColor[3],
+		db.backgroundColor[4]
+	)
+	if db.borderMode == "off" then
 		overlay:SetBackdropBorderColor(0, 0, 0, 0)
+	elseif db.borderMode == "custom" then
+		overlay:SetBackdropBorderColor(
+			db.borderColor[1],
+			db.borderColor[2],
+			db.borderColor[3],
+			db.borderColor[4]
+		)
+	end
+end
+
+local function OnNameplateHide(nameplate)
+	local overlay = nameplate.ThreatPlatingOverlay
+	if overlay then
+		overlay:Hide()
 	end
 end
 
@@ -192,60 +292,135 @@ local function CreateOverlay(nameplate)
 	overlay.text = text
 
 	ApplyOverlayStyle(overlay)
-	ApplyAnchor(overlay, nameplate)
+	ApplyOverlayLayout(overlay, nameplate)
 
 	if not nameplate.ThreatPlatingHideHooked then
-		nameplate:HookScript("OnHide", function(hiddenNameplate)
-			local hiddenOverlay = hiddenNameplate.ThreatPlatingOverlay
-			if hiddenOverlay then
-				hiddenOverlay:Hide()
-			end
-		end)
+		nameplate:HookScript("OnHide", OnNameplateHide)
 		nameplate.ThreatPlatingHideHooked = true
 	end
 
 	nameplate.ThreatPlatingOverlay = overlay
+	overlay.record = {
+		nameplate = nameplate,
+		overlay = overlay,
+	}
 	return overlay
 end
 
-function addon:ApplyThreatColor(badge, text, isLeader, isPullThresholdWarning)
+function addon:GetSemanticColor(isLeader, isPullThresholdWarning, isTank)
+	if isTank == nil then
+		isTank = self.playerIsTank
+	end
+
+	local semantic
 	if isPullThresholdWarning then
-		text:SetTextColor(1, 0.62, 0.12, 1)
-		if addon.db.showBackground then
-			badge:SetBackdropBorderColor(0.95, 0.45, 0.08, 1)
-		end
-	elseif self.Threat.IsDesiredState(self.playerIsTank, isLeader) then
-		text:SetTextColor(0.35, 1, 0.35, 1)
-		if addon.db.showBackground then
-			badge:SetBackdropBorderColor(0.20, 0.75, 0.20, 1)
-		end
+		semantic = "warning"
+	elseif Threat.IsDesiredState(isTank, isLeader) then
+		semantic = "safe"
 	else
-		text:SetTextColor(1, 0.32, 0.26, 1)
-		if addon.db.showBackground then
-			badge:SetBackdropBorderColor(0.85, 0.18, 0.14, 1)
-		end
+		semantic = "danger"
+	end
+
+	local color
+	if self.db.palette == "custom" then
+		color = self.db[semantic .. "Color"]
+	else
+		local palette = PALETTES[self.db.palette] or PALETTES.default
+		color = palette[semantic]
+	end
+
+	return color[1], color[2], color[3], semantic
+end
+
+function addon:ApplyThreatColor(
+	badge,
+	text,
+	isLeader,
+	isPullThresholdWarning,
+	isTank
+)
+	local red, green, blue = self:GetSemanticColor(
+		isLeader,
+		isPullThresholdWarning,
+		isTank
+	)
+	text:SetTextColor(red, green, blue, 1)
+
+	if self.db.borderMode == "semantic" then
+		badge:SetBackdropBorderColor(red, green, blue, 1)
+	elseif self.db.borderMode == "custom" then
+		local color = self.db.borderColor
+		badge:SetBackdropBorderColor(color[1], color[2], color[3], color[4])
+	else
+		badge:SetBackdropBorderColor(0, 0, 0, 0)
 	end
 end
 
-local function DisplayValue(record, value, isLeader, isPullThresholdWarning)
+local function DisplayValue(record, value, isLeader, isPullThresholdWarning, isTank)
 	local overlay = record.overlay
-	local text = addon.Threat.FormatDelta(value, isLeader)
+	local text
+	if overlay.cachedDisplayValue == value
+		and overlay.cachedDisplayIsLeader == isLeader
+	then
+		text = overlay.cachedDisplayText
+	else
+		text = Threat.FormatDelta(value, isLeader)
+		overlay.cachedDisplayValue = value
+		overlay.cachedDisplayIsLeader = isLeader
+		overlay.cachedDisplayText = text
+	end
+
 	if not text then
 		overlay:Hide()
 		return
 	end
 
-	ApplyAnchor(overlay, record.nameplate)
+	local layoutChanged = overlay.displayLayoutRevision ~= addon.layoutRevision
+	local styleChanged = overlay.displayStyleRevision ~= addon.styleRevision
+	ApplyOverlayLayout(overlay, record.nameplate)
 	ApplyOverlayStyle(overlay)
-	overlay.text:SetText(text)
-	if addon.db.autoWidth then
-		overlay:SetWidth(math.max(addon.db.badgeWidth, math.ceil(overlay.text:GetStringWidth()) + 14))
-	else
-		overlay:SetWidth(addon.db.badgeWidth)
+
+	if overlay.displayText ~= text then
+		overlay.displayText = text
+		overlay.text:SetText(text)
+		styleChanged = true
 	end
 
-	addon:ApplyThreatColor(overlay, overlay.text, isLeader, isPullThresholdWarning)
-	overlay:Show()
+	if layoutChanged or styleChanged then
+		if addon.db.autoWidth then
+			overlay:SetWidth(
+				math.max(
+					addon.db.badgeWidth,
+					math.ceil(overlay.text:GetStringWidth()) + addon.db.padding * 2
+				)
+			)
+		else
+			overlay:SetWidth(addon.db.badgeWidth)
+		end
+		overlay.displayLayoutRevision = addon.layoutRevision
+		overlay.displayStyleRevision = addon.styleRevision
+	end
+
+	if styleChanged
+		or overlay.colorIsLeader ~= isLeader
+		or overlay.colorIsPullThresholdWarning ~= isPullThresholdWarning
+		or overlay.colorIsTank ~= isTank
+	then
+		addon:ApplyThreatColor(
+			overlay,
+			overlay.text,
+			isLeader,
+			isPullThresholdWarning,
+			isTank
+		)
+		overlay.colorIsLeader = isLeader
+		overlay.colorIsPullThresholdWarning = isPullThresholdWarning
+		overlay.colorIsTank = isTank
+	end
+
+	if not overlay:IsShown() then
+		overlay:Show()
+	end
 end
 
 local function ReleaseNameplate(unit, record)
@@ -254,9 +429,25 @@ local function ReleaseNameplate(unit, record)
 	end
 
 	activeNameplates[unit] = nil
+	record.refreshRequested = false
 	if record.overlay.unit == unit then
 		record.overlay.unit = nil
 		record.overlay:Hide()
+	end
+end
+
+local function ReleaseOverlayOwner(overlay)
+	if not overlay then
+		return
+	end
+
+	local unit = overlay.unit
+	local record = unit and activeNameplates[unit]
+	if record and record.overlay == overlay then
+		ReleaseNameplate(unit, record)
+	else
+		overlay.unit = nil
+		overlay:Hide()
 	end
 end
 
@@ -271,46 +462,47 @@ local function QueryThreat(sourceUnit, enemyUnit)
 	return isTanking == true, scaledPercentage, rawPercentage, rawThreat
 end
 
-local function AppendThreat(rawThreats, sourceUnit, enemyUnit)
-	if not UnitExists(sourceUnit) or UnitIsUnit(sourceUnit, "player") then
-		return
-	end
-
-	local _, _, _, rawThreat = QueryThreat(sourceUnit, enemyUnit)
-	if rawThreat then
-		rawThreats[#rawThreats + 1] = rawThreat
-	end
-end
-
-local function CollectContenderThreats(enemyUnit)
-	local rawThreats = {}
-	local enemyTarget = enemyUnit .. "target"
-	local targetAlreadyIncluded = false
+local function CollectHighestContenderThreat(enemyUnit, enemyTarget)
+	local highestRawThreat
+	local targetExists = UnitExists(enemyTarget)
+	local targetAlreadyIncluded = not targetExists
 
 	for index = 1, #threatSources do
 		local sourceUnit = threatSources[index]
-		if UnitExists(enemyTarget)
-			and UnitExists(sourceUnit)
-			and UnitIsUnit(sourceUnit, enemyTarget)
-		then
-			targetAlreadyIncluded = true
+		if UnitExists(sourceUnit) then
+			if targetExists and UnitIsUnit(sourceUnit, enemyTarget) then
+				targetAlreadyIncluded = true
+			end
+
+			if not UnitIsUnit(sourceUnit, "player") then
+				local _, _, _, rawThreat = QueryThreat(sourceUnit, enemyUnit)
+				highestRawThreat = Threat.SelectHigherRawThreat(
+					highestRawThreat,
+					rawThreat
+				)
+			end
 		end
-		AppendThreat(rawThreats, sourceUnit, enemyUnit)
 	end
 
 	-- This covers an NPC or out-of-group actor currently tanking the enemy.
 	if not targetAlreadyIncluded then
-		AppendThreat(rawThreats, enemyTarget, enemyUnit)
+		if not UnitIsUnit(enemyTarget, "player") then
+			local _, _, _, rawThreat = QueryThreat(enemyTarget, enemyUnit)
+			highestRawThreat = Threat.SelectHigherRawThreat(
+				highestRawThreat,
+				rawThreat
+			)
+		end
 	end
 
-	return rawThreats
+	return highestRawThreat
 end
 
 local function UpdateNameplate(unit, record)
 	if not addon.enabled
 		or record.overlay.unit ~= unit
 		or not record.nameplate:IsShown()
-		or C_NamePlate.GetNamePlateForUnit(unit) ~= record.nameplate
+		or GetNamePlateForUnit(unit) ~= record.nameplate
 		or not IsEligibleUnit(unit)
 	then
 		record.overlay:Hide()
@@ -318,27 +510,34 @@ local function UpdateNameplate(unit, record)
 	end
 
 	if addon.configPreviewActive then
-		DisplayValue(record, 12300, true, false)
+		local isTank, isLeader, isWarning = addon:GetConfigPreviewScenario()
+		DisplayValue(record, 12300, isLeader, isWarning, isTank)
 		return
 	end
 
 	if addon.testModeUntil > GetTime() then
-		DisplayValue(record, 12300, true, addon.testPullThresholdWarning)
+		DisplayValue(
+			record,
+			12300,
+			true,
+			addon.testPullThresholdWarning,
+			addon.playerIsTank
+		)
 		return
 	end
 
 	local isTanking, scaledPercentage, rawPercentage, playerRawThreat =
 		QueryThreat("player", unit)
-	local contenderRawThreats = EMPTY_THREATS
+	local highestContenderRawThreat
 
-	if addon.Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage) then
-		contenderRawThreats = CollectContenderThreats(unit)
+	if Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage) then
+		highestContenderRawThreat = CollectHighestContenderThreat(unit, record.targetUnit)
 	end
 
-	local delta, isLeader = addon.Threat.CalculateDelta(
+	local delta, isLeader = Threat.CalculateDelta(
 		playerRawThreat,
 		rawPercentage,
-		contenderRawThreats
+		highestContenderRawThreat
 	)
 
 	if delta == nil then
@@ -346,12 +545,12 @@ local function UpdateNameplate(unit, record)
 		return
 	end
 
-	local isPullThresholdWarning = addon.Threat.IsPullThresholdWarning(
+	local isPullThresholdWarning = Threat.IsPullThresholdWarning(
 		isTanking,
 		scaledPercentage,
 		rawPercentage
 	)
-	DisplayValue(record, delta, isLeader, isPullThresholdWarning)
+	DisplayValue(record, delta, isLeader, isPullThresholdWarning, addon.playerIsTank)
 end
 
 local function AddThreatSource(unit)
@@ -380,20 +579,24 @@ local function RebuildThreatSources()
 	end
 
 	refreshRequested = true
+	refreshAllRequested = true
 end
 
 local function AddNameplate(unit)
-	if not addon.enabled or not IsEligibleUnit(unit) then
+	local existingRecord = activeNameplates[unit]
+	local nameplate = GetNamePlateForUnit(unit)
+	if not nameplate then
+		ReleaseNameplate(unit, existingRecord)
 		return
 	end
 
-	local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
-	if not nameplate then
+	if not addon.enabled or not IsEligibleUnit(unit) then
+		ReleaseNameplate(unit, existingRecord)
+		ReleaseOverlayOwner(nameplate.ThreatPlatingOverlay)
 		return
 	end
 
 	local overlay = nameplate.ThreatPlatingOverlay or CreateOverlay(nameplate)
-	local existingRecord = activeNameplates[unit]
 	if existingRecord
 		and existingRecord.nameplate == nameplate
 		and overlay.unit == unit
@@ -406,24 +609,16 @@ local function AddNameplate(unit)
 	end
 
 	if overlay.unit and overlay.unit ~= unit then
-		local previousUnit = overlay.unit
-		local previousRecord = activeNameplates[previousUnit]
-		if previousRecord and previousRecord.overlay == overlay then
-			ReleaseNameplate(previousUnit, previousRecord)
-		else
-			overlay.unit = nil
-			overlay:Hide()
-		end
+		ReleaseOverlayOwner(overlay)
 	end
 
 	overlay.unit = unit
 	overlay:Hide()
 
-	local record = {
-		nameplate = nameplate,
-		overlay = overlay,
-	}
+	local record = overlay.record
 	activeNameplates[unit] = record
+	record.targetUnit = unit .. "target"
+	record.refreshRequested = true
 	refreshRequested = true
 	return record
 end
@@ -440,7 +635,7 @@ function addon:ScanVisibleNameplates()
 
 	scanRevision = scanRevision + 1
 
-	for _, nameplate in ipairs(C_NamePlate.GetNamePlates()) do
+	for _, nameplate in ipairs(GetNamePlates()) do
 		local unit = nameplate.namePlateUnitToken
 		local unitFrame = GetUnitFrame(nameplate)
 		if not unit and unitFrame then
@@ -464,7 +659,20 @@ end
 
 function addon.UpdateAllNameplates()
 	for unit, record in pairs(activeNameplates) do
+		record.refreshRequested = false
 		UpdateNameplate(unit, record)
+	end
+
+	refreshRequested = false
+	refreshAllRequested = false
+end
+
+local function UpdateRequestedNameplates()
+	for unit, record in pairs(activeNameplates) do
+		if record.refreshRequested then
+			record.refreshRequested = false
+			UpdateNameplate(unit, record)
+		end
 	end
 end
 
@@ -474,34 +682,246 @@ function addon.HideAllNameplates()
 	end
 end
 
-function addon.GetReferenceHealthBarSize()
+local function ReadFontStringVisual(fontString, prefix, healthBar)
+	if not fontString
+		or not fontString.GetText
+		or (fontString.IsShown and not fontString:IsShown())
+	then
+		return false
+	end
+
+	local text = fontString:GetText()
+	if type(text) ~= "string" or text == "" then
+		return false
+	end
+
+	referenceVisual[prefix .. "Text"] = text
+	local fontPath, fontSize, fontFlags
+	if fontString.GetFont then
+		fontPath, fontSize, fontFlags = fontString:GetFont()
+	end
+	referenceVisual[prefix .. "FontPath"] = fontPath
+	referenceVisual[prefix .. "FontSize"] = fontSize
+	referenceVisual[prefix .. "FontFlags"] = fontFlags
+
+	local red, green, blue, alpha = 1, 1, 1, 1
+	if fontString.GetTextColor then
+		red, green, blue, alpha = fontString:GetTextColor()
+	end
+	if not IsFiniteNumber(red) then
+		red = 1
+	end
+	if not IsFiniteNumber(green) then
+		green = 1
+	end
+	if not IsFiniteNumber(blue) then
+		blue = 1
+	end
+	if not IsFiniteNumber(alpha) then
+		alpha = 1
+	end
+	referenceVisual[prefix .. "Red"] = red
+	referenceVisual[prefix .. "Green"] = green
+	referenceVisual[prefix .. "Blue"] = blue
+	referenceVisual[prefix .. "Alpha"] = alpha
+
+	local textX, textY = fontString:GetCenter()
+	local barX, barY = healthBar:GetCenter()
+	if IsFiniteNumber(textX)
+		and IsFiniteNumber(textY)
+		and IsFiniteNumber(barX)
+		and IsFiniteNumber(barY)
+	then
+		referenceVisual[prefix .. "OffsetX"] = textX - barX
+		referenceVisual[prefix .. "OffsetY"] = textY - barY
+	else
+		referenceVisual[prefix .. "OffsetX"] = nil
+		referenceVisual[prefix .. "OffsetY"] = nil
+	end
+
+	return true
+end
+
+local function PopulateReferenceVisual(record)
+	if not record
+		or record.overlay.unit == nil
+		or not record.nameplate:IsShown()
+		or GetNamePlateForUnit(record.overlay.unit) ~= record.nameplate
+	then
+		return false
+	end
+
+	local unitFrame = GetUnitFrame(record.nameplate)
+	local healthBar = GetVisualHealthBar(record.nameplate)
+	local width = healthBar and healthBar:GetWidth()
+	local height = healthBar and healthBar:GetHeight()
+	if not IsFiniteNumber(width)
+		or width <= 0
+		or not IsFiniteNumber(height)
+		or height <= 0
+	then
+		return false
+	end
+
+	referenceVisual.width = width
+	referenceVisual.height = height
+	referenceVisual.texture = nil
+	if healthBar.GetStatusBarTexture then
+		local texture = healthBar:GetStatusBarTexture()
+		if texture and texture.GetTexture then
+			referenceVisual.texture = texture:GetTexture()
+		end
+	end
+
+	referenceVisual.red = 0.72
+	referenceVisual.green = 0.12
+	referenceVisual.blue = 0.10
+	referenceVisual.alpha = 1
+	if healthBar.GetStatusBarColor then
+		referenceVisual.red,
+			referenceVisual.green,
+			referenceVisual.blue,
+			referenceVisual.alpha = healthBar:GetStatusBarColor()
+	end
+	if not IsFiniteNumber(referenceVisual.red) then
+		referenceVisual.red = 0.72
+	end
+	if not IsFiniteNumber(referenceVisual.green) then
+		referenceVisual.green = 0.12
+	end
+	if not IsFiniteNumber(referenceVisual.blue) then
+		referenceVisual.blue = 0.10
+	end
+	if not IsFiniteNumber(referenceVisual.alpha) then
+		referenceVisual.alpha = 1
+	end
+
+	referenceVisual.fill = 0.70
+	if healthBar.GetMinMaxValues and healthBar.GetValue then
+		local minimum, maximum = healthBar:GetMinMaxValues()
+		local value = healthBar:GetValue()
+		if IsFiniteNumber(minimum)
+			and IsFiniteNumber(maximum)
+			and IsFiniteNumber(value)
+			and maximum > minimum
+		then
+			referenceVisual.fill = math.max(
+				0,
+				math.min(1, (value - minimum) / (maximum - minimum))
+			)
+		end
+	end
+
+	referenceVisual.nameText = nil
+	referenceVisual.healthText = nil
+	if unitFrame then
+		ReadFontStringVisual(unitFrame.name, "name", healthBar)
+	end
+	if healthBar then
+		if not ReadFontStringVisual(healthBar.Text, "health", healthBar) then
+			if not ReadFontStringVisual(healthBar.LeftText, "health", healthBar) then
+				ReadFontStringVisual(healthBar.RightText, "health", healthBar)
+			end
+		end
+	end
+
+	return true
+end
+
+function addon.GetReferenceNameplateVisual()
+	local targetPlate = GetNamePlateForUnit("target")
+	if targetPlate then
+		local overlay = targetPlate.ThreatPlatingOverlay
+		if overlay and PopulateReferenceVisual(overlay.record) then
+			return referenceVisual
+		end
+	end
+
 	for unit, record in pairs(activeNameplates) do
 		if record.overlay.unit == unit
 			and record.nameplate:IsShown()
-			and C_NamePlate.GetNamePlateForUnit(unit) == record.nameplate
+			and GetNamePlateForUnit(unit) == record.nameplate
 		then
-			local anchor = GetHealthBarAnchor(record.nameplate)
-			local width = anchor and anchor:GetWidth()
-			local height = anchor and anchor:GetHeight()
-			if width and height and width > 0 and height > 0 then
-				return width, height
+			if PopulateReferenceVisual(record) then
+				return referenceVisual
 			end
 		end
+	end
+
+	return nil
+end
+
+function addon.GetReferenceHealthBarSize()
+	local visual = addon.GetReferenceNameplateVisual()
+	if visual then
+		return visual.width, visual.height
 	end
 
 	return 128, 20
 end
 
-function addon.ApplyDisplaySettings()
-	addon.layoutRevision = addon.layoutRevision + 1
-	addon.styleRevision = addon.styleRevision + 1
-
-	for _, record in pairs(activeNameplates) do
-		ApplyOverlayStyle(record.overlay)
-		ApplyAnchor(record.overlay, record.nameplate)
+function addon.ApplyDisplaySettings(changeKind)
+	changeKind = changeKind or "all"
+	if changeKind ~= "layout" and changeKind ~= "style" then
+		changeKind = "all"
 	end
 
-	addon.UpdateAllNameplates()
+	if changeKind == "layout" or changeKind == "all" then
+		addon.layoutRevision = addon.layoutRevision + 1
+	end
+	if changeKind == "style" or changeKind == "all" then
+		addon.styleRevision = addon.styleRevision + 1
+	end
+
+	for _, record in pairs(activeNameplates) do
+		local overlay = record.overlay
+		ApplyOverlayLayout(overlay, record.nameplate)
+		ApplyOverlayStyle(overlay)
+
+		if overlay.displayText then
+			if addon.db.autoWidth then
+				overlay:SetWidth(math.max(
+					addon.db.badgeWidth,
+					math.ceil(overlay.text:GetStringWidth()) + addon.db.padding * 2
+				))
+			else
+				overlay:SetWidth(addon.db.badgeWidth)
+			end
+			overlay.displayLayoutRevision = addon.layoutRevision
+			overlay.displayStyleRevision = addon.styleRevision
+			addon:ApplyThreatColor(
+				overlay,
+				overlay.text,
+				overlay.colorIsLeader,
+				overlay.colorIsPullThresholdWarning,
+				overlay.colorIsTank
+			)
+		end
+	end
+end
+
+local function RequestNameplateRefresh(unit)
+	if not addon.enabled then
+		return
+	end
+
+	local record = activeNameplates[unit]
+	if not record and unit then
+		local nameplate = GetNamePlateForUnit(unit)
+		local overlay = nameplate and nameplate.ThreatPlatingOverlay
+		local overlayUnit = overlay and overlay.unit
+		local overlayRecord = overlayUnit and activeNameplates[overlayUnit]
+		if overlayRecord and overlayRecord.nameplate == nameplate then
+			record = overlayRecord
+		end
+	end
+
+	if not record or record.overlay.unit == nil then
+		return
+	end
+
+	record.refreshRequested = true
+	refreshRequested = true
 end
 
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
@@ -534,7 +954,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit)
 	then
 		addon:RefreshPlayerRole()
 	else
-		refreshRequested = true
+		RequestNameplateRefresh(unit)
 	end
 end)
 
@@ -543,6 +963,7 @@ eventFrame:SetScript("OnUpdate", function(_, elapsed)
 		elapsedSincePoll = 0
 		elapsedSinceRefresh = 0
 		refreshRequested = false
+		refreshAllRequested = false
 		return
 	end
 
@@ -561,8 +982,13 @@ eventFrame:SetScript("OnUpdate", function(_, elapsed)
 	end
 
 	elapsedSinceRefresh = 0
-	addon.UpdateAllNameplates()
+	if dueForPoll or refreshAllRequested then
+		addon.UpdateAllNameplates()
+	else
+		UpdateRequestedNameplates()
+	end
 	refreshRequested = false
+	refreshAllRequested = false
 end)
 
 RebuildThreatSources()

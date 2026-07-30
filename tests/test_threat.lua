@@ -20,42 +20,68 @@ local function AssertNear(actual, expected, label)
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(120000, 100, { 95000, 40000 })
+	local delta, isLeader = Threat.CalculateDelta(120000, 100, 95000)
 	AssertNear(delta, 250, "leader delta")
 	AssertEqual(isLeader, true, "leader state")
 	AssertEqual(Threat.FormatDelta(delta, isLeader), "+250", "leader text")
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(50000, 50, {})
+	local delta, isLeader = Threat.CalculateDelta(50000, 50, nil)
 	AssertNear(delta, -500, "inferred deficit")
 	AssertEqual(isLeader, false, "deficit state")
 	AssertEqual(Threat.FormatDelta(delta, isLeader), "-500", "deficit text")
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(nil, nil, { 90000 })
+	local delta, isLeader = Threat.CalculateDelta(nil, nil, 90000)
 	AssertNear(delta, -900, "zero-threat deficit")
 	AssertEqual(isLeader, false, "zero-threat state")
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(120000, 120, {})
+	local delta, isLeader = Threat.CalculateDelta(120000, 120, nil)
 	AssertNear(delta, 200, "taunt runner-up inference")
 	AssertEqual(isLeader, true, "taunt leader state")
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(100000, 100, { 90000 })
+	local delta, isLeader = Threat.CalculateDelta(100000, 100, 90000)
 	AssertNear(delta, 100, "equal-reference inference is not a duplicate contender")
 	AssertEqual(isLeader, true, "equal-reference leader state")
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(nil, nil, {})
+	local delta, isLeader = Threat.CalculateDelta(nil, nil, nil)
 	AssertEqual(delta, nil, "no-data delta")
 	AssertEqual(isLeader, false, "no-data state")
 end
+
+AssertEqual(
+	Threat.SelectHigherRawThreat(nil, 90000),
+	90000,
+	"first contender becomes highest"
+)
+AssertEqual(
+	Threat.SelectHigherRawThreat(90000, 120000),
+	120000,
+	"higher contender replaces highest"
+)
+AssertEqual(
+	Threat.SelectHigherRawThreat(120000, 90000),
+	120000,
+	"lower contender preserves highest"
+)
+AssertEqual(
+	Threat.SelectHigherRawThreat(math.huge, 90000),
+	90000,
+	"invalid cached contender is discarded"
+)
+AssertEqual(
+	Threat.SelectHigherRawThreat(90000, math.huge),
+	90000,
+	"invalid candidate is ignored"
+)
 
 AssertEqual(Threat.ShouldScanContenders(100000, true, 100), true, "tank scan")
 AssertEqual(Threat.ShouldScanContenders(100000, false, 99.5), true, "near-lead scan")
@@ -141,9 +167,15 @@ AssertEqual(Threat.FormatDelta(999950, true), "+1m", "rounded millions boundary"
 AssertEqual(Threat.FormatDelta(math.huge, true), nil, "non-finite delta")
 
 do
-	local delta, isLeader = Threat.CalculateDelta(math.huge, 100, {})
+	local delta, isLeader = Threat.CalculateDelta(math.huge, 100, nil)
 	AssertEqual(delta, nil, "non-finite raw threat delta")
 	AssertEqual(isLeader, false, "non-finite raw threat state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(100000, 1e-320, nil)
+	AssertEqual(delta, nil, "overflowing inference delta")
+	AssertEqual(isLeader, false, "overflowing inference state")
 end
 
 print(string.format("Threat math: %d assertions passed", passed))

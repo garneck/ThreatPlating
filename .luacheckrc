@@ -3,7 +3,9 @@ max_line_length = 120
 
 globals = {
 	"C_NamePlate",
+	"ColorPickerFrame",
 	"CreateFrame",
+	"GameTooltip",
 	"GetNumGroupMembers",
 	"GetNumSubgroupMembers",
 	"GetNumTalentTabs",

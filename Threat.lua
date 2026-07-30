@@ -26,18 +26,6 @@ local function NormalizeRawThreat(rawThreat)
 	return rawThreat * RAW_THREAT_SCALE
 end
 
-local function AddCandidate(leader, runnerUp, candidate)
-	if candidate > leader + THREAT_EPSILON then
-		return candidate, leader
-	end
-
-	if candidate > runnerUp then
-		return leader, candidate
-	end
-
-	return leader, runnerUp
-end
-
 function Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage)
 	if not IsFiniteNumber(playerRawThreat) or playerRawThreat <= 0 then
 		return true
@@ -54,6 +42,22 @@ function Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage)
 	-- At (or above) the top of the table, the API percentage cannot tell us the
 	-- runner-up. We scan queryable group units to calculate the positive lead.
 	return rawPercentage >= (100 - LEADER_PERCENT_EPSILON)
+end
+
+function Threat.SelectHigherRawThreat(currentRawThreat, candidateRawThreat)
+	local highestRawThreat
+	if IsFiniteNumber(currentRawThreat) and currentRawThreat > 0 then
+		highestRawThreat = currentRawThreat
+	end
+
+	if IsFiniteNumber(candidateRawThreat)
+		and candidateRawThreat > 0
+		and (not highestRawThreat or candidateRawThreat > highestRawThreat)
+	then
+		return candidateRawThreat
+	end
+
+	return highestRawThreat
 end
 
 function Threat.IsTankRole(
@@ -103,15 +107,9 @@ function Threat.IsPullThresholdWarning(isTanking, scaledPercentage, rawPercentag
 		and scaledPercentage < 100
 end
 
-function Threat.CalculateDelta(playerRawThreat, rawPercentage, contenderRawThreats)
+function Threat.CalculateDelta(playerRawThreat, rawPercentage, highestContenderRawThreat)
 	local playerThreat = NormalizeRawThreat(playerRawThreat)
-	local leader = playerThreat
-	local runnerUp = 0
-
-	for index = 1, #contenderRawThreats do
-		local contenderThreat = NormalizeRawThreat(contenderRawThreats[index])
-		leader, runnerUp = AddCandidate(leader, runnerUp, contenderThreat)
-	end
+	local contenderThreat = NormalizeRawThreat(highestContenderRawThreat)
 
 	-- rawPercentage lets us infer the reference actor even if that actor has
 	-- no group unit token. isTanking describes aggro, not necessarily the
@@ -121,17 +119,22 @@ function Threat.CalculateDelta(playerRawThreat, rawPercentage, contenderRawThrea
 		and rawPercentage > 0
 	then
 		local inferredReferenceThreat = playerThreat * 100 / rawPercentage
+		if not IsFiniteNumber(inferredReferenceThreat) then
+			return nil, false
+		end
+
 		if math.abs(inferredReferenceThreat - playerThreat) > THREAT_EPSILON then
-			leader, runnerUp = AddCandidate(leader, runnerUp, inferredReferenceThreat)
+			contenderThreat = math.max(contenderThreat, inferredReferenceThreat)
 		end
 	end
 
+	local leader = math.max(playerThreat, contenderThreat)
 	if leader <= 0 then
 		return nil, false
 	end
 
 	if playerThreat + THREAT_EPSILON >= leader then
-		return math.max(0, playerThreat - runnerUp), true
+		return math.max(0, playerThreat - contenderThreat), true
 	end
 
 	return playerThreat - leader, false
