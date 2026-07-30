@@ -91,6 +91,46 @@ AssertEqual(Threat.IsDesiredState(true, true), true, "tank leader desired")
 AssertEqual(Threat.IsDesiredState(true, false), false, "tank deficit dangerous")
 AssertEqual(Threat.IsDesiredState(false, true), false, "non-tank leader dangerous")
 AssertEqual(Threat.IsDesiredState(false, false), true, "non-tank deficit desired")
+AssertEqual(
+	Threat.IsPullThresholdWarning(false, 95.5, 105),
+	true,
+	"melee pull-threshold warning"
+)
+AssertEqual(
+	Threat.IsPullThresholdWarning(false, 92.3, 120),
+	true,
+	"ranged pull-threshold warning"
+)
+AssertEqual(
+	Threat.IsPullThresholdWarning(true, 95.5, 105),
+	false,
+	"current tank has no pull-threshold warning"
+)
+AssertEqual(
+	Threat.IsPullThresholdWarning(false, 90, 100),
+	false,
+	"equal raw threat is below warning bracket"
+)
+AssertEqual(
+	Threat.IsPullThresholdWarning(false, 100, 110),
+	false,
+	"pull threshold boundary is outside warning bracket"
+)
+AssertEqual(
+	Threat.IsPullThresholdWarning(false, nil, 105),
+	false,
+	"missing scaled percentage"
+)
+AssertEqual(
+	Threat.IsPullThresholdWarning(false, 95, nil),
+	false,
+	"missing raw percentage"
+)
+AssertEqual(
+	Threat.IsPullThresholdWarning(false, math.huge, 105),
+	false,
+	"non-finite scaled percentage"
+)
 
 AssertEqual(Threat.FormatDelta(12300, true), "+12.3k", "thousands format")
 AssertEqual(Threat.FormatDelta(-2000000, false), "-2m", "millions format")

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 - 2026-07-30
+
+- Show an orange warning when the player has surpassed the enemy's current target in raw threat but
+  remains below the aggro pull threshold.
+- Use the API's scaled threat percentage so the warning automatically respects the 110% melee and
+  130% ranged-distance thresholds without class or range guessing.
+- Keep the signed raw-threat lead or deficit unchanged while orange temporarily overrides the
+  tank/non-tank role color.
+- Add `/threatplating test orange` for visual validation.
+
 ## 0.3.0 - 2026-07-30
 
 - Detect tank intent from explicit group assignments, Protection talents, warrior Defensive

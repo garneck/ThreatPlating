@@ -374,7 +374,7 @@ assert(loadfile("Threat.lua"))("ThreatPlating", addon)
 assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.3.0", "runtime version should match the release")
+assert(addon.version == "0.4.0", "runtime version should match the release")
 assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
 assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
 assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")
@@ -456,10 +456,46 @@ Update(0.05)
 assert(plate.ThreatPlatingOverlay.text.text == "+200", "non-tank leader text should keep its sign")
 AssertColor(plate.ThreatPlatingOverlay.text, 1, 0.32, 0.26, "non-tank leader should be red")
 
+threat["player:nameplate1"] = { false, 1, 95.5, 105, 105000 }
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
+assert(plate.ThreatPlatingOverlay.text.text == "+50", "threshold warning should keep the raw lead")
+AssertColor(
+	plate.ThreatPlatingOverlay.text,
+	1,
+	0.62,
+	0.12,
+	"raw leader below the pull threshold should be orange"
+)
+
+threat["pet:nameplate1"] = { false, 1, 100, 110, 110000 }
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
+assert(plate.ThreatPlatingOverlay.text.text == "-50", "threshold warning should preserve a deficit")
+AssertColor(
+	plate.ThreatPlatingOverlay.text,
+	1,
+	0.62,
+	0.12,
+	"threshold warning should be orange when another contender leads"
+)
+threat["pet:nameplate1"] = { false, 1, 80, 80, 80000 }
+
 assignedRole = "TANK"
 Dispatch("PLAYER_ROLES_ASSIGNED")
 Update(0.05)
 assert(addon.playerIsTank, "assigned tank role should override talents")
+AssertColor(
+	plate.ThreatPlatingOverlay.text,
+	1,
+	0.62,
+	0.12,
+	"pull-threshold warning should override role colors"
+)
+
+threat["player:nameplate1"] = { true, 3, 100, 100, 100000 }
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
 AssertColor(plate.ThreatPlatingOverlay.text, 0.35, 1, 0.35, "assigned tank leader should be green")
 
 assignedRole = "DAMAGER"
@@ -515,7 +551,7 @@ Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
 Update(0.05)
 assert(not stalePlate.ThreatPlatingOverlay.shown, "a stale pooled plate should hide before the next poll")
 
-Update(0.10)
+Update(0.20)
 assert(replacementPlate.ThreatPlatingOverlay.shown, "the fallback scan should attach to a replacement plate")
 assert(stalePlate.ThreatPlatingOverlay.unit == nil, "a replaced pooled plate should release its unit token")
 
@@ -552,6 +588,26 @@ assert(threatQueryCount == queriesWhileDisabled, "disabled addon should not quer
 
 addon:SetEnabled(true)
 assert(addon.db.enabled == true, "enabled state should be saved")
+
+SlashCmdList.THREATPLATING("test orange")
+assert(addon.testPullThresholdWarning, "orange visual test should select the threshold color")
+AssertColor(
+	disabledPlate.ThreatPlatingOverlay.text,
+	1,
+	0.62,
+	0.12,
+	"orange visual test should color visible samples"
+)
+
+SlashCmdList.THREATPLATING("test")
+assert(not addon.testPullThresholdWarning, "normal visual test should clear the orange override")
+AssertColor(
+	disabledPlate.ThreatPlatingOverlay.text,
+	0.35,
+	1,
+	0.35,
+	"normal visual test should use detected role colors"
+)
 
 addon.ToggleConfig()
 assert(addon.configPreviewActive, "opening the configurator should enable live preview")

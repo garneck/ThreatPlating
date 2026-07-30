@@ -7,10 +7,12 @@
 3. Reload with `/reload`.
 4. Turn on enemy nameplates.
 5. Run `/threatplating test` near several attackable NPCs.
+6. Run `/threatplating test orange`.
 
 Expected: every eligible visible NPC plate gets a `+12.3k` badge to the right of its health bar for
 eight seconds. It is green in tank mode and red in non-tank mode. Friendly NPCs, players, and
-player-controlled pets do not get a badge.
+player-controlled pets do not get a badge. The orange test uses orange text and border without
+changing layout or eligibility.
 
 `.\tools\push.ps1` is the normal push command for this checkout. After a successful push, it calls
 the installer with the pushed revision so the game never receives uncommitted files.
@@ -53,8 +55,32 @@ Expected:
 - No badge before meaningful threat exists.
 - As a detected tank, red `-x` while behind and green `+x` when leading.
 - As a detected non-tank, green `-x` while behind and red `+x` when leading.
+- Orange while above the current target's raw threat but below the aggro pull threshold.
 - No stale badge after a plate disappears or is recycled.
 - Your pet is treated as a competing actor, not added to your threat.
+
+## Aggro pull-threshold warning
+
+Use a threat meter that exposes both raw and scaled percentages for comparison:
+
+1. Let another player establish aggro and hold steady at 100% reference threat.
+2. In melee range, increase your raw threat past 100% without reaching 110%.
+3. Repeat from outside melee range, increasing raw threat past 100% without reaching 130%.
+4. While between 110% and 130% at range, move into melee range.
+5. Repeat during a taunt swap, then let the taunt expire.
+
+Expected:
+
+- The badge turns orange only while raw threat is above 100%, scaled threat is below 100%, and the
+  enemy is not targeting the player.
+- Both the 100–110% melee bracket and the 100–130% ranged bracket work; class does not determine
+  which threshold applies.
+- Moving into melee range updates within roughly 0.25 seconds. If the move crosses the applicable
+  pull threshold and aggro changes, orange clears.
+- The displayed sign and magnitude continue to compare raw threat. Orange may therefore accompany
+  either sign when another queryable contender is also above the current target.
+- Taunts and fixates do not change raw-threat arithmetic; encounter targeting mechanics may delay
+  or prevent the normal aggro transition.
 
 ## Role and specialization detection
 

@@ -94,6 +94,15 @@ function Threat.IsDesiredState(isTank, isLeader)
 	return (isTank and isLeader) or (not isTank and not isLeader)
 end
 
+function Threat.IsPullThresholdWarning(isTanking, scaledPercentage, rawPercentage)
+	return not isTanking
+		and IsFiniteNumber(rawPercentage)
+		and rawPercentage > 100
+		and IsFiniteNumber(scaledPercentage)
+		and scaledPercentage > 0
+		and scaledPercentage < 100
+end
+
 function Threat.CalculateDelta(playerRawThreat, rawPercentage, contenderRawThreats)
 	local playerThreat = NormalizeRawThreat(playerRawThreat)
 	local leader = playerThreat

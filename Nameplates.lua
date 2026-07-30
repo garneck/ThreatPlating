@@ -208,8 +208,13 @@ local function CreateOverlay(nameplate)
 	return overlay
 end
 
-function addon:ApplyThreatColor(badge, text, isLeader)
-	if self.Threat.IsDesiredState(self.playerIsTank, isLeader) then
+function addon:ApplyThreatColor(badge, text, isLeader, isPullThresholdWarning)
+	if isPullThresholdWarning then
+		text:SetTextColor(1, 0.62, 0.12, 1)
+		if addon.db.showBackground then
+			badge:SetBackdropBorderColor(0.95, 0.45, 0.08, 1)
+		end
+	elseif self.Threat.IsDesiredState(self.playerIsTank, isLeader) then
 		text:SetTextColor(0.35, 1, 0.35, 1)
 		if addon.db.showBackground then
 			badge:SetBackdropBorderColor(0.20, 0.75, 0.20, 1)
@@ -222,7 +227,7 @@ function addon:ApplyThreatColor(badge, text, isLeader)
 	end
 end
 
-local function DisplayValue(record, value, isLeader)
+local function DisplayValue(record, value, isLeader, isPullThresholdWarning)
 	local overlay = record.overlay
 	local text = addon.Threat.FormatDelta(value, isLeader)
 	if not text then
@@ -239,7 +244,7 @@ local function DisplayValue(record, value, isLeader)
 		overlay:SetWidth(addon.db.badgeWidth)
 	end
 
-	addon:ApplyThreatColor(overlay, overlay.text, isLeader)
+	addon:ApplyThreatColor(overlay, overlay.text, isLeader, isPullThresholdWarning)
 	overlay:Show()
 end
 
@@ -256,14 +261,14 @@ local function ReleaseNameplate(unit, record)
 end
 
 local function QueryThreat(sourceUnit, enemyUnit)
-	local ok, isTanking, status, _, rawPercentage, rawThreat =
+	local ok, isTanking, status, scaledPercentage, rawPercentage, rawThreat =
 		pcall(UnitDetailedThreatSituation, sourceUnit, enemyUnit)
 
 	if not ok or type(status) ~= "number" or type(rawThreat) ~= "number" then
-		return false, nil, nil
+		return false, nil, nil, nil
 	end
 
-	return isTanking == true, rawPercentage, rawThreat
+	return isTanking == true, scaledPercentage, rawPercentage, rawThreat
 end
 
 local function AppendThreat(rawThreats, sourceUnit, enemyUnit)
@@ -271,7 +276,7 @@ local function AppendThreat(rawThreats, sourceUnit, enemyUnit)
 		return
 	end
 
-	local _, _, rawThreat = QueryThreat(sourceUnit, enemyUnit)
+	local _, _, _, rawThreat = QueryThreat(sourceUnit, enemyUnit)
 	if rawThreat then
 		rawThreats[#rawThreats + 1] = rawThreat
 	end
@@ -312,12 +317,18 @@ local function UpdateNameplate(unit, record)
 		return
 	end
 
-	if addon.configPreviewActive or addon.testModeUntil > GetTime() then
-		DisplayValue(record, 12300, true)
+	if addon.configPreviewActive then
+		DisplayValue(record, 12300, true, false)
 		return
 	end
 
-	local isTanking, rawPercentage, playerRawThreat = QueryThreat("player", unit)
+	if addon.testModeUntil > GetTime() then
+		DisplayValue(record, 12300, true, addon.testPullThresholdWarning)
+		return
+	end
+
+	local isTanking, scaledPercentage, rawPercentage, playerRawThreat =
+		QueryThreat("player", unit)
 	local contenderRawThreats = EMPTY_THREATS
 
 	if addon.Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage) then
@@ -335,7 +346,12 @@ local function UpdateNameplate(unit, record)
 		return
 	end
 
-	DisplayValue(record, delta, isLeader)
+	local isPullThresholdWarning = addon.Threat.IsPullThresholdWarning(
+		isTanking,
+		scaledPercentage,
+		rawPercentage
+	)
+	DisplayValue(record, delta, isLeader, isPullThresholdWarning)
 end
 
 local function AddThreatSource(unit)

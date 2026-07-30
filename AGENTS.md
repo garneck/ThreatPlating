@@ -12,6 +12,8 @@ The counter semantics are fixed:
 - `-x`: another actor leads; `x` is the player's deficit to that lead.
 - For a detected tank, `+x` is green and `-x` is red.
 - For a detected non-tank, `-x` is green and `+x` is red.
+- Orange overrides the role color while the player has more raw threat than the enemy's current
+  target but remains below the distance-scaled aggro pull threshold.
 - The player's pet remains a separate threat actor. Do not merge pet threat into player threat.
 - Hide the badge when no meaningful threat data exists.
 - Never show on players or player-controlled units.
@@ -82,6 +84,11 @@ access in `Nameplates.lua`.
 
 TBC Anniversary raw threat is divided by 100 before display. This matches the live client's
 Classic threat behavior and must be reverified on client updates.
+
+Aggro changes targets above 110% raw threat in melee range and 130% outside melee range. Use the
+API's `scaledPercentage` rather than duplicating range checks: it normalizes the applicable pull
+threshold to 100%. The orange warning bracket requires `rawPercentage > 100`,
+`scaledPercentage < 100`, and `isTanking == false`.
 
 To avoid a group-size × plate-count scan on every tick:
 

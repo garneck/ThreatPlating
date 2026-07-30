@@ -14,12 +14,19 @@ assignments take priority. Otherwise, the addon detects Protection paladin and w
 builds, warrior Defensive Stance, and druid Bear or Dire Bear Form. Feral druids therefore switch
 between tank colors in bear form and non-tank colors in cat or caster form.
 
+Orange is a role-independent warning: your raw threat is already above the enemy's current target,
+but you have not crossed the aggro pull threshold yet. That threshold depends on distance, not
+class—110% in melee range and 130% outside melee range. Threat Plating uses the API's scaled
+percentage, which normalizes the currently applicable threshold to 100%, so the warning responds
+when you move between melee and ranged distance. The sign and number still describe the raw threat
+lead or deficit.
+
 The counter sits immediately to the right of the health bar in a high-contrast badge. Player and
 player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.3.0` addon targeting TBC Anniversary client
+This repository contains a working `0.4.0` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
@@ -49,6 +56,7 @@ Commands:
 
 - `/threatplating` — open the visual configurator.
 - `/threatplating test` — show a sample `+12.3k` badge for eight seconds on eligible visible plates.
+- `/threatplating test orange` — show the orange threshold-warning variant for eight seconds.
 - `/threatplating status`
 - `/threatplating on`
 - `/threatplating off`
@@ -98,6 +106,8 @@ See [AGENTS.md](AGENTS.md) for architecture and contribution invariants, and
 The implementation was checked against the extracted UI source for live build `2.5.6.68941`:
 
 - [UnitDetailedThreatSituation API signature](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/UnitDocumentation.lua)
+- [Blizzard threat-color behavior](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua)
+- [Classic aggro-threshold measurements](https://github.com/magey/classic-warrior/wiki/Threat-Mechanics#aggro-thresholds)
 - [Nameplate lifecycle events](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/NamePlateManagerDocumentation.lua)
 - [TBC Anniversary default nameplate frame](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_NamePlates/Blizzard_NamePlateUnitFrame.lua)
 - [Frame movement and resize APIs](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/SimpleFrameAPIDocumentation.lua)

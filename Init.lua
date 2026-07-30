@@ -1,10 +1,11 @@
 local addonName, addon = ...
 
 addon.name = addonName
-addon.version = "0.3.0"
+addon.version = "0.4.0"
 addon.updateInterval = 0.20
 addon.eventRefreshDelay = 0.05
 addon.testModeUntil = 0
+addon.testPullThresholdWarning = false
 addon.configPreviewActive = false
 addon.layoutRevision = 1
 addon.styleRevision = 1
@@ -129,7 +130,9 @@ end
 
 SLASH_THREATPLATING1 = "/threatplating"
 SlashCmdList.THREATPLATING = function(message)
-	local command = string.lower((message or ""):match("^%s*(%S*)") or "")
+	local command, argument = (message or ""):match("^%s*(%S*)%s*(%S*)")
+	command = string.lower(command or "")
+	argument = string.lower(argument or "")
 
 	if command == "on" then
 		addon:SetEnabled(true)
@@ -140,9 +143,14 @@ SlashCmdList.THREATPLATING = function(message)
 	elseif command == "test" then
 		addon:SetEnabled(true)
 		addon.testModeUntil = GetTime() + 8
+		addon.testPullThresholdWarning = argument == "orange"
 		addon:ScanVisibleNameplates()
 		addon.UpdateAllNameplates()
-		Print("showing sample counters on eligible visible nameplates for 8 seconds.")
+		if addon.testPullThresholdWarning then
+			Print("showing orange threshold samples on eligible visible nameplates for 8 seconds.")
+		else
+			Print("showing sample counters on eligible visible nameplates for 8 seconds.")
+		end
 	elseif command == "status" then
 		local state = addon.enabled and "enabled" or "disabled"
 		local role = addon.playerIsTank and "tank" or "non-tank"

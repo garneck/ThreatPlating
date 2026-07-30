@@ -127,7 +127,7 @@ local function ApplyPreviewVisuals()
 		previewBadge:SetBackdropColor(0, 0, 0, 0)
 		previewBadge:SetBackdropBorderColor(0, 0, 0, 0)
 	end
-	addon:ApplyThreatColor(previewBadge, previewBadgeText, true)
+	addon:ApplyThreatColor(previewBadge, previewBadgeText, true, false)
 
 	previewBadge:ClearAllPoints()
 	previewBadge:SetPoint(
