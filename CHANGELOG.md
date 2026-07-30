@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 - 2026-07-30
+
+- Preserve one database table identity through `ADDON_LOADED`, adopt the client's final
+  SavedVariables table into it, and point `ThreatPlatingDB` back to the table held by the editor.
+- Fix 0.5 settings reverting on `/reload` because the editor could mutate a startup table other
+  than the global table serialized by WoW.
+- Add runtime coverage for late SavedVariables replacement, legacy adoption, and subsequent editor
+  mutations reaching the serialized global.
+
 ## 0.5.0 - 2026-07-30
 
 - Replace the fixed configurator with a responsive Blizzard-native editor that reflows between

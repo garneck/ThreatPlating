@@ -156,6 +156,10 @@ function Frame:RegisterEvent(event)
 	self.events[event] = true
 end
 
+function Frame:UnregisterEvent(event)
+	self.events[event] = nil
+end
+
 function Frame:RegisterForDrag()
 end
 
@@ -668,7 +672,7 @@ assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 addon.testHarness = true
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.5.0", "runtime version should match the release")
+assert(addon.version == "0.5.1", "runtime version should match the release")
 assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
 assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
 assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")
@@ -730,7 +734,52 @@ local function NewPlate(unit)
 	return plate
 end
 
-local eventFrame = frames[1]
+local eventFrame
+local databaseFrame
+for _, frame in ipairs(frames) do
+	if frame.events.NAME_PLATE_UNIT_ADDED then
+		eventFrame = frame
+	elseif frame.events.ADDON_LOADED then
+		databaseFrame = frame
+	end
+end
+assert(eventFrame, "nameplate event frame should exist")
+assert(databaseFrame, "database event frame should wait for ADDON_LOADED")
+
+local runtimeDatabase = addon.db
+local lateLoadedDatabase = addon.CopyValue(addon.db)
+lateLoadedDatabase.schemaVersion = nil
+lateLoadedDatabase.showBackground = true
+lateLoadedDatabase.backgroundColor = nil
+lateLoadedDatabase.borderMode = nil
+lateLoadedDatabase.padding = 13
+ThreatPlatingDB = lateLoadedDatabase
+databaseFrame.scripts.OnEvent(databaseFrame, "ADDON_LOADED", "AnotherAddon")
+assert(
+	databaseFrame.events.ADDON_LOADED,
+	"unrelated addon load events should not finalize saved variables"
+)
+databaseFrame.scripts.OnEvent(databaseFrame, "ADDON_LOADED", "ThreatPlating")
+assert(addon.db == runtimeDatabase, "database adoption should preserve the runtime table identity")
+assert(
+	ThreatPlatingDB == runtimeDatabase,
+	"the saved global should point at the table mutated by the editor"
+)
+assert(addon.db.padding == 13, "late-loaded custom settings should be adopted")
+assert(addon.db.schemaVersion == 2, "late-loaded legacy settings should migrate")
+assert(
+	addon.db.backgroundColor[4] == 0.90 and addon.db.borderMode == "semantic",
+	"late-loaded legacy appearance should migrate"
+)
+addon.db.padding = 17
+assert(
+	ThreatPlatingDB.padding == 17,
+	"editor mutations should update the table serialized by WoW"
+)
+assert(
+	not databaseFrame.events.ADDON_LOADED,
+	"database initialization should finish after the addon’s load event"
+)
 
 local function Dispatch(event, unit)
 	assert(eventFrame.events[event], "event is not registered: " .. event)

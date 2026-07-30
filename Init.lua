@@ -1,7 +1,7 @@
 local addonName, addon = ...
 
 addon.name = addonName
-addon.version = "0.5.0"
+addon.version = "0.5.1"
 addon.updateInterval = 0.20
 addon.eventRefreshDelay = 0.05
 addon.testModeUntil = 0
@@ -255,14 +255,50 @@ local function ValidateDatabase(target)
 	target.schemaVersion = SCHEMA_VERSION
 end
 
-ThreatPlatingDB = type(ThreatPlatingDB) == "table" and ThreatPlatingDB or {}
-ValidateDatabase(ThreatPlatingDB)
+local runtimeDB = type(ThreatPlatingDB) == "table" and ThreatPlatingDB or {}
+ThreatPlatingDB = runtimeDB
+ValidateDatabase(runtimeDB)
 
-addon.db = ThreatPlatingDB
+addon.db = runtimeDB
 addon.enabled = addon.db.enabled
 addon.Clamp = Clamp
 addon.Round = Round
 addon.CopyValue = CopyValue
+
+local function AdoptLoadedDatabase()
+	local loadedDB = ThreatPlatingDB
+	if loadedDB ~= runtimeDB then
+		for key in pairs(runtimeDB) do
+			runtimeDB[key] = nil
+		end
+
+		if type(loadedDB) == "table" then
+			for key, value in pairs(loadedDB) do
+				runtimeDB[key] = CopyValue(value)
+			end
+		end
+	end
+
+	ValidateDatabase(runtimeDB)
+	ThreatPlatingDB = runtimeDB
+	addon.db = runtimeDB
+	addon.enabled = runtimeDB.enabled
+
+	if addon.RefreshConfig then
+		addon.RefreshConfig()
+	end
+end
+
+local databaseFrame = CreateFrame("Frame")
+databaseFrame:RegisterEvent("ADDON_LOADED")
+databaseFrame:SetScript("OnEvent", function(self, _, loadedAddonName)
+	if loadedAddonName ~= addonName then
+		return
+	end
+
+	self:UnregisterEvent("ADDON_LOADED")
+	AdoptLoadedDatabase()
+end)
 
 local function CopyKeys(source, target, keys)
 	for _, key in ipairs(keys) do

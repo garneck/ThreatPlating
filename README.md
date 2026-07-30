@@ -26,7 +26,7 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.5.0` addon targeting TBC Anniversary client
+This repository contains a working `0.5.1` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
