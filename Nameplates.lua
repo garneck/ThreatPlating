@@ -17,6 +17,95 @@ local refreshRequested = true
 local scanRevision = 0
 local eventFrame = CreateFrame("Frame")
 
+local function GetDominantTalentTree()
+	if type(GetTalentTabInfo) ~= "function" then
+		return nil
+	end
+
+	local talentTabCount = 3
+	if type(GetNumTalentTabs) == "function" then
+		talentTabCount = GetNumTalentTabs() or talentTabCount
+	end
+
+	local dominantTree
+	local highestPoints = -1
+	local tied = false
+
+	for index = 1, talentTabCount do
+		local _, _, _, _, pointsSpent = GetTalentTabInfo(index)
+		if type(pointsSpent) == "number" then
+			if pointsSpent > highestPoints then
+				dominantTree = index
+				highestPoints = pointsSpent
+				tied = false
+			elseif pointsSpent == highestPoints then
+				tied = true
+			end
+		end
+	end
+
+	if tied or highestPoints <= 0 then
+		return nil
+	end
+
+	return dominantTree
+end
+
+local function GetActiveFormSpellID()
+	if type(GetShapeshiftForm) ~= "function"
+		or type(GetShapeshiftFormInfo) ~= "function"
+	then
+		return nil
+	end
+
+	local formIndex = GetShapeshiftForm()
+	if not formIndex or formIndex <= 0 then
+		return nil
+	end
+
+	local _, isActive, _, spellID = GetShapeshiftFormInfo(formIndex)
+	if isActive then
+		return spellID
+	end
+
+	return nil
+end
+
+local function DetectPlayerTankRole()
+	local assignedRole = "NONE"
+	if type(UnitGroupRolesAssigned) == "function" then
+		assignedRole = UnitGroupRolesAssigned("player") or assignedRole
+	end
+
+	local isMainTank = false
+	if type(GetPartyAssignment) == "function" then
+		isMainTank = GetPartyAssignment("MAINTANK", "player", true) == true
+	end
+
+	local _, classToken = UnitClass("player")
+	return addon.Threat.IsTankRole(
+		classToken,
+		GetDominantTalentTree(),
+		GetActiveFormSpellID(),
+		assignedRole,
+		isMainTank
+	)
+end
+
+function addon:RefreshPlayerRole()
+	local isTank = DetectPlayerTankRole()
+	if self.playerIsTank == isTank then
+		return
+	end
+
+	self.playerIsTank = isTank
+	refreshRequested = true
+
+	if self.RefreshConfig then
+		self.RefreshConfig()
+	end
+end
+
 local function IsEligibleUnit(unit)
 	return UnitExists(unit)
 		and UnitCanAttack("player", unit)
@@ -119,6 +208,20 @@ local function CreateOverlay(nameplate)
 	return overlay
 end
 
+function addon:ApplyThreatColor(badge, text, isLeader)
+	if self.Threat.IsDesiredState(self.playerIsTank, isLeader) then
+		text:SetTextColor(0.35, 1, 0.35, 1)
+		if addon.db.showBackground then
+			badge:SetBackdropBorderColor(0.20, 0.75, 0.20, 1)
+		end
+	else
+		text:SetTextColor(1, 0.32, 0.26, 1)
+		if addon.db.showBackground then
+			badge:SetBackdropBorderColor(0.85, 0.18, 0.14, 1)
+		end
+	end
+end
+
 local function DisplayValue(record, value, isLeader)
 	local overlay = record.overlay
 	local text = addon.Threat.FormatDelta(value, isLeader)
@@ -136,18 +239,7 @@ local function DisplayValue(record, value, isLeader)
 		overlay:SetWidth(addon.db.badgeWidth)
 	end
 
-	if isLeader then
-		overlay.text:SetTextColor(0.35, 1, 0.35, 1)
-		if addon.db.showBackground then
-			overlay:SetBackdropBorderColor(0.20, 0.75, 0.20, 1)
-		end
-	else
-		overlay.text:SetTextColor(1, 0.32, 0.26, 1)
-		if addon.db.showBackground then
-			overlay:SetBackdropBorderColor(0.85, 0.18, 0.14, 1)
-		end
-	end
-
+	addon:ApplyThreatColor(overlay, overlay.text, isLeader)
 	overlay:Show()
 end
 
@@ -396,12 +488,16 @@ function addon.ApplyDisplaySettings()
 	addon.UpdateAllNameplates()
 end
 
+eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 eventFrame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 eventFrame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+eventFrame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 eventFrame:RegisterEvent("UNIT_THREAT_LIST_UPDATE")
 eventFrame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE")
+eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 
 eventFrame:SetScript("OnEvent", function(_, event, unit)
 	if event == "NAME_PLATE_UNIT_ADDED" then
@@ -410,9 +506,17 @@ eventFrame:SetScript("OnEvent", function(_, event, unit)
 		RemoveNameplate(unit)
 	elseif event == "GROUP_ROSTER_UPDATE" then
 		RebuildThreatSources()
+		addon:RefreshPlayerRole()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		RebuildThreatSources()
+		addon:RefreshPlayerRole()
 		addon:ScanVisibleNameplates()
+	elseif event == "ACTIVE_TALENT_GROUP_CHANGED"
+		or event == "PLAYER_ROLES_ASSIGNED"
+		or event == "PLAYER_TALENT_UPDATE"
+		or event == "UPDATE_SHAPESHIFT_FORM"
+	then
+		addon:RefreshPlayerRole()
 	else
 		refreshRequested = true
 	end
@@ -446,3 +550,4 @@ eventFrame:SetScript("OnUpdate", function(_, elapsed)
 end)
 
 RebuildThreatSources()
+addon:RefreshPlayerRole()

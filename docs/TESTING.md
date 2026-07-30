@@ -8,8 +8,9 @@
 4. Turn on enemy nameplates.
 5. Run `/threatplating test` near several attackable NPCs.
 
-Expected: every eligible visible NPC plate gets a green `+12.3k` badge to the right of its health
-bar for eight seconds. Friendly NPCs, players, and player-controlled pets do not get a badge.
+Expected: every eligible visible NPC plate gets a `+12.3k` badge to the right of its health bar for
+eight seconds. It is green in tank mode and red in non-tank mode. Friendly NPCs, players, and
+player-controlled pets do not get a badge.
 
 `.\tools\push.ps1` is the normal push command for this checkout. After a successful push, it calls
 the installer with the pushed revision so the game never receives uncommitted files.
@@ -28,6 +29,8 @@ the installer with the pushed revision so the game never receives uncommitted fi
 Expected:
 
 - All currently visible eligible plates show `+12.3k` while the configurator is open.
+- The status line identifies tank or non-tank colors, and the sample is green for a tank or red for
+  a non-tank.
 - Real plates update after every completed drag and continuously during resize.
 - Closing the configurator restores real threat values or hides plates without threat.
 - Badge layout and configurator size/position survive `/reload`.
@@ -48,10 +51,29 @@ Test without a pet and then with a pet:
 Expected:
 
 - No badge before meaningful threat exists.
-- Red `-x` while behind.
-- Green `+x` when leading.
+- As a detected tank, red `-x` while behind and green `+x` when leading.
+- As a detected non-tank, green `-x` while behind and red `+x` when leading.
 - No stale badge after a plate disappears or is recycled.
 - Your pet is treated as a competing actor, not added to your threat.
+
+## Role and specialization detection
+
+1. On a warrior or paladin, swap between a Protection build and a non-tank build, then spend or
+   remove a talent point to trigger a talent refresh.
+2. On a non-Protection warrior, enter and leave Defensive Stance.
+3. On a feral druid, switch among Bear or Dire Bear Form, Cat Form, and caster form.
+4. In a group that supports role selection, change the assigned role between tank and damage or
+   healer.
+5. Run `/threatplating status` and keep the configurator open during each transition.
+
+Expected:
+
+- Protection paladins and warriors use tank colors; other talent builds use non-tank colors unless
+  a stronger current signal says otherwise.
+- Defensive Stance and Bear or Dire Bear Form enable tank colors immediately.
+- Cat and caster forms use non-tank colors unless the druid has an explicit tank assignment.
+- An explicit tank, damage, or healer assignment overrides talent detection.
+- The status command, configurator sample, and visible nameplates switch without a reload.
 
 ## Lifecycle and event stress
 

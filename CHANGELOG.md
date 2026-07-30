@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-07-30
+
+- Detect tank intent from explicit group assignments, Protection talents, warrior Defensive
+  Stance, and druid Bear or Dire Bear Form.
+- Keep threat signs unchanged while making colors role-aware: green marks the desired threat state
+  and red marks the dangerous state for the detected role.
+- Refresh role colors immediately after role, talent, roster, and shapeshift changes.
+- Show the detected tank or non-tank color mode in the configurator and status command.
+
 ## 0.2.2 - 2026-07-29
 
 - Keep the 0.20-second fallback scan independent from event refreshes so sustained threat events

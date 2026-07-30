@@ -7,9 +7,11 @@ small, dependency-free, readable under pressure, and safe to enable in raids.
 
 The counter semantics are fixed:
 
-- Green `+x`: the player has the highest observed/inferred raw threat; `x` is the lead over the
-  highest other queryable actor.
-- Red `-x`: another actor leads; `x` is the player's deficit to that lead.
+- `+x`: the player has the highest observed/inferred raw threat; `x` is the lead over the highest
+  other queryable actor.
+- `-x`: another actor leads; `x` is the player's deficit to that lead.
+- For a detected tank, `+x` is green and `-x` is red.
+- For a detected non-tank, `-x` is green and `+x` is red.
 - The player's pet remains a separate threat actor. Do not merge pet threat into player threat.
 - Hide the badge when no meaningful threat data exists.
 - Never show on players or player-controlled units.

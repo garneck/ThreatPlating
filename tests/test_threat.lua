@@ -69,6 +69,29 @@ AssertEqual(
 	"non-finite percentage scan"
 )
 
+AssertEqual(Threat.IsTankRole("PALADIN", 2, nil, "NONE", false), true, "protection paladin")
+AssertEqual(Threat.IsTankRole("PALADIN", 3, nil, "NONE", false), false, "retribution paladin")
+AssertEqual(Threat.IsTankRole("WARRIOR", 3, nil, "NONE", false), true, "protection warrior")
+AssertEqual(Threat.IsTankRole("WARRIOR", 1, 71, "NONE", false), true, "defensive stance")
+AssertEqual(Threat.IsTankRole("DRUID", 2, 5487, "NONE", false), true, "bear form")
+AssertEqual(Threat.IsTankRole("DRUID", 2, 9634, "NONE", false), true, "dire bear form")
+AssertEqual(Threat.IsTankRole("DRUID", 2, 768, "NONE", false), false, "cat form")
+AssertEqual(Threat.IsTankRole("MAGE", 1, nil, "TANK", false), true, "assigned tank")
+AssertEqual(
+	Threat.IsTankRole("WARRIOR", 3, 71, "DAMAGER", false),
+	false,
+	"assigned damage override"
+)
+AssertEqual(
+	Threat.IsTankRole("PALADIN", 3, nil, "HEALER", true),
+	true,
+	"main tank assignment priority"
+)
+AssertEqual(Threat.IsDesiredState(true, true), true, "tank leader desired")
+AssertEqual(Threat.IsDesiredState(true, false), false, "tank deficit dangerous")
+AssertEqual(Threat.IsDesiredState(false, true), false, "non-tank leader dangerous")
+AssertEqual(Threat.IsDesiredState(false, false), true, "non-tank deficit desired")
+
 AssertEqual(Threat.FormatDelta(12300, true), "+12.3k", "thousands format")
 AssertEqual(Threat.FormatDelta(-2000000, false), "-2m", "millions format")
 AssertEqual(Threat.FormatDelta(0, true), "+0", "leader tie format")

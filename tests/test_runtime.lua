@@ -101,7 +101,8 @@ end
 function Frame:SetBackdrop()
 end
 
-function Frame:SetBackdropBorderColor()
+function Frame:SetBackdropBorderColor(...)
+	self.borderColor = { ... }
 end
 
 function Frame:SetBackdropColor()
@@ -177,7 +178,8 @@ function Frame:SetText(text)
 	self.text = text
 end
 
-function Frame:SetTextColor()
+function Frame:SetTextColor(...)
+	self.textColor = { ... }
 end
 
 function Frame:SetTextHeight(height)
@@ -223,6 +225,11 @@ local threat = {}
 local now = 100
 local nameplateScanCount = 0
 local threatQueryCount = 0
+local assignedRole = "NONE"
+local isMainTank = false
+local playerClass = "WARRIOR"
+local activeFormSpellID
+local talentPoints = { 0, 0, 41 }
 
 function CreateFrame(_, _, parent)
 	local frame = setmetatable({
@@ -261,6 +268,26 @@ function GetNumSubgroupMembers()
 	return 0
 end
 
+function GetNumTalentTabs()
+	return 3
+end
+
+function GetPartyAssignment()
+	return isMainTank
+end
+
+function GetShapeshiftForm()
+	return activeFormSpellID and 1 or 0
+end
+
+function GetShapeshiftFormInfo()
+	return nil, activeFormSpellID ~= nil, true, activeFormSpellID
+end
+
+function GetTalentTabInfo(index)
+	return index, "Tree " .. index, nil, nil, talentPoints[index], "Tree" .. index
+end
+
 function GetTime()
 	return now
 end
@@ -275,6 +302,10 @@ end
 
 function UnitCanAttack(_, unit)
 	return unit == "nameplate1" or unit == "nameplate2"
+end
+
+function UnitClass()
+	return playerClass, playerClass
 end
 
 function UnitDetailedThreatSituation(source, enemy)
@@ -300,6 +331,10 @@ end
 
 function UnitPlayerControlled(unit)
 	return unit == "nameplate2"
+end
+
+function UnitGroupRolesAssigned()
+	return assignedRole
 end
 
 function wipe(target)
@@ -339,7 +374,7 @@ assert(loadfile("Threat.lua"))("ThreatPlating", addon)
 assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.2.2", "runtime version should match the release")
+assert(addon.version == "0.3.0", "runtime version should match the release")
 assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
 assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
 assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")
@@ -371,6 +406,14 @@ local function Update(elapsed)
 	eventFrame.scripts.OnUpdate(eventFrame, elapsed)
 end
 
+local function AssertColor(frame, red, green, blue, label)
+	local color = frame.textColor
+	assert(
+		color and color[1] == red and color[2] == green and color[3] == blue,
+		label
+	)
+end
+
 local plate = NewPlate("nameplate1")
 threat["player:nameplate1"] = { true, 3, 100, 100, 100000 }
 threat["pet:nameplate1"] = { false, 1, 80, 80, 80000 }
@@ -380,6 +423,8 @@ Update(0.20)
 
 assert(plate.ThreatPlatingOverlay.shown, "leader overlay should be shown")
 assert(plate.ThreatPlatingOverlay.text.text == "+200", "leader overlay should show +200")
+assert(addon.playerIsTank, "Protection talents should select tank colors")
+AssertColor(plate.ThreatPlatingOverlay.text, 0.35, 1, 0.35, "tank leader should be green")
 
 threat["player:nameplate1"] = { true, 3, 50, 50, 50000 }
 Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
@@ -388,6 +433,7 @@ assert(
 	plate.ThreatPlatingOverlay.text.text == "-500",
 	"tanking state must not override a higher inferred raw threat"
 )
+AssertColor(plate.ThreatPlatingOverlay.text, 1, 0.32, 0.26, "tank deficit should be red")
 
 local scansBeforeThreatEvent = nameplateScanCount
 threat["player:nameplate1"] = { false, 1, 50, 50, 50000 }
@@ -398,12 +444,57 @@ assert(plate.ThreatPlatingOverlay.shown, "deficit overlay should remain shown")
 assert(plate.ThreatPlatingOverlay.text.text == "-500", "deficit overlay should show -500")
 assert(nameplateScanCount == scansBeforeThreatEvent, "event refresh should not perform a fallback scan")
 
-for _ = 1, 3 do
+talentPoints = { 41, 0, 0 }
+Dispatch("PLAYER_TALENT_UPDATE")
+Update(0.05)
+assert(not addon.playerIsTank, "changing from Protection should select non-tank colors")
+AssertColor(plate.ThreatPlatingOverlay.text, 0.35, 1, 0.35, "non-tank deficit should be green")
+
+threat["player:nameplate1"] = { true, 3, 100, 100, 100000 }
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
+assert(plate.ThreatPlatingOverlay.text.text == "+200", "non-tank leader text should keep its sign")
+AssertColor(plate.ThreatPlatingOverlay.text, 1, 0.32, 0.26, "non-tank leader should be red")
+
+assignedRole = "TANK"
+Dispatch("PLAYER_ROLES_ASSIGNED")
+Update(0.05)
+assert(addon.playerIsTank, "assigned tank role should override talents")
+AssertColor(plate.ThreatPlatingOverlay.text, 0.35, 1, 0.35, "assigned tank leader should be green")
+
+assignedRole = "DAMAGER"
+talentPoints = { 0, 0, 41 }
+Dispatch("PLAYER_ROLES_ASSIGNED")
+Update(0.05)
+assert(not addon.playerIsTank, "assigned damage role should override Protection talents")
+
+assignedRole = "NONE"
+playerClass = "DRUID"
+talentPoints = { 0, 41, 0 }
+activeFormSpellID = 5487
+Dispatch("UPDATE_SHAPESHIFT_FORM")
+Update(0.05)
+assert(addon.playerIsTank, "Bear Form should select tank colors")
+
+activeFormSpellID = 768
+Dispatch("UPDATE_SHAPESHIFT_FORM")
+Update(0.05)
+assert(not addon.playerIsTank, "Cat Form should select non-tank colors")
+
+playerClass = "PALADIN"
+activeFormSpellID = nil
+talentPoints = { 0, 41, 0 }
+Dispatch("ACTIVE_TALENT_GROUP_CHANGED")
+Update(0.05)
+assert(addon.playerIsTank, "an active Protection talent group should select tank colors")
+
+local scansBeforeContinuousEvents = nameplateScanCount
+for _ = 1, 4 do
 	Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 	Update(0.05)
 end
 assert(
-	nameplateScanCount == scansBeforeThreatEvent + 1,
+	nameplateScanCount == scansBeforeContinuousEvents + 1,
 	"continuous threat events must not starve the fallback scan"
 )
 

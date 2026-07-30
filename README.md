@@ -5,16 +5,21 @@ new default enemy nameplates.
 
 For every visible, attackable NPC with meaningful threat data, it shows:
 
-- `+x` in green when you have the highest threat. `x` is your lead over the highest queryable
-  contender.
-- `-x` in red when you are behind. `x` is the gap to the threat lead.
+- `+x` when you have the highest threat. `x` is your lead over the highest queryable contender.
+- `-x` when you are behind. `x` is the gap to the threat lead.
+
+Colors adapt to your detected role: tanks see a safe lead in green and a deficit in red, while
+non-tanks see a safe deficit in green and taking the lead in red. Explicit group/raid tank
+assignments take priority. Otherwise, the addon detects Protection paladin and warrior talent
+builds, warrior Defensive Stance, and druid Bear or Dire Bear Form. Feral druids therefore switch
+between tank colors in bear form and non-tank colors in cat or caster form.
 
 The counter sits immediately to the right of the health bar in a high-contrast badge. Player and
 player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.2.2` addon targeting TBC Anniversary client
+This repository contains a working `0.3.0` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
@@ -54,7 +59,8 @@ The configurator is also available from **Options → AddOns → Threat Plating*
 Compartment. Its window can be moved and resized. Inside it, drag the sample badge relative to the
 current 2.5.6 nameplate health bar and resize it from the lower-right corner. Position, size, font
 size, high-contrast background visibility, automatic width, enabled state, and window placement are
-saved account-wide.
+saved account-wide. The preview and `/threatplating status` report the currently detected color
+mode.
 
 Close it with the title-bar X, the footer Close button, Escape, `/threatplating close`, or by running
 `/threatplating` again.

@@ -6,6 +6,9 @@ addon.Threat = Threat
 local RAW_THREAT_SCALE = 0.01
 local LEADER_PERCENT_EPSILON = 0.5
 local THREAT_EPSILON = 0.005
+local BEAR_FORM_SPELL_ID = 5487
+local DIRE_BEAR_FORM_SPELL_ID = 9634
+local DEFENSIVE_STANCE_SPELL_ID = 71
 
 local function IsFiniteNumber(value)
 	return type(value) == "number"
@@ -51,6 +54,44 @@ function Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage)
 	-- At (or above) the top of the table, the API percentage cannot tell us the
 	-- runner-up. We scan queryable group units to calculate the positive lead.
 	return rawPercentage >= (100 - LEADER_PERCENT_EPSILON)
+end
+
+function Threat.IsTankRole(
+	classToken,
+	dominantTalentTree,
+	activeFormSpellID,
+	assignedRole,
+	isMainTank
+)
+	if isMainTank or assignedRole == "TANK" then
+		return true
+	end
+
+	if assignedRole == "HEALER" or assignedRole == "DAMAGER" then
+		return false
+	end
+
+	if classToken == "DRUID" then
+		-- Feral is a shared tank/DPS tree in TBC, so the active form is the
+		-- useful signal when no explicit group role is available.
+		return activeFormSpellID == BEAR_FORM_SPELL_ID
+			or activeFormSpellID == DIRE_BEAR_FORM_SPELL_ID
+	end
+
+	if classToken == "PALADIN" then
+		return dominantTalentTree == 2
+	end
+
+	if classToken == "WARRIOR" then
+		return dominantTalentTree == 3
+			or activeFormSpellID == DEFENSIVE_STANCE_SPELL_ID
+	end
+
+	return false
+end
+
+function Threat.IsDesiredState(isTank, isLeader)
+	return (isTank and isLeader) or (not isTank and not isLeader)
 end
 
 function Threat.CalculateDelta(playerRawThreat, rawPercentage, contenderRawThreats)

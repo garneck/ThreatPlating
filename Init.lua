@@ -1,7 +1,7 @@
 local addonName, addon = ...
 
 addon.name = addonName
-addon.version = "0.2.2"
+addon.version = "0.3.0"
 addon.updateInterval = 0.20
 addon.eventRefreshDelay = 0.05
 addon.testModeUntil = 0
@@ -145,9 +145,11 @@ SlashCmdList.THREATPLATING = function(message)
 		Print("showing sample counters on eligible visible nameplates for 8 seconds.")
 	elseif command == "status" then
 		local state = addon.enabled and "enabled" or "disabled"
+		local role = addon.playerIsTank and "tank" or "non-tank"
 		Print(string.format(
-			"%s; %.2fs fallback poll; %.2fs minimum event refresh.",
+			"%s; detected %s; %.2fs fallback poll; %.2fs minimum event refresh.",
 			state,
+			role,
 			addon.updateInterval,
 			addon.eventRefreshDelay
 		))

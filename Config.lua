@@ -90,12 +90,13 @@ local function UpdateStatus()
 	end
 
 	statusText:SetText(string.format(
-		"Badge %d x %d  |  Font %d  |  Offset %+d, %+d",
+		"Badge %d x %d  |  Font %d  |  Offset %+d, %+d  |  %s colors",
 		db.badgeWidth,
 		db.badgeHeight,
 		db.fontSize,
 		db.offsetX,
-		db.offsetY
+		db.offsetY,
+		addon.playerIsTank and "Tank" or "Non-tank"
 	))
 end
 
@@ -122,11 +123,11 @@ local function ApplyPreviewVisuals()
 
 	if db.showBackground then
 		previewBadge:SetBackdropColor(0.025, 0.025, 0.025, 0.90)
-		previewBadge:SetBackdropBorderColor(0.20, 0.75, 0.20, 1)
 	else
 		previewBadge:SetBackdropColor(0, 0, 0, 0)
 		previewBadge:SetBackdropBorderColor(0, 0, 0, 0)
 	end
+	addon:ApplyThreatColor(previewBadge, previewBadgeText, true)
 
 	previewBadge:ClearAllPoints()
 	previewBadge:SetPoint(
