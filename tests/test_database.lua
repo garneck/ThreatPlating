@@ -117,7 +117,7 @@ local addon = LoadInitWithDatabase({
 	windowOffsetY = -99999,
 })
 
-assert(addon.version == "0.5.1", "runtime version should match the release")
+assert(addon.version == "0.6.0", "runtime version should match the release")
 assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
 assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
 assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")

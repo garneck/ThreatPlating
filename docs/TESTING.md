@@ -77,8 +77,10 @@ Test without a pet and then with a pet:
 Expected:
 
 - No badge before meaningful threat exists.
-- As a detected tank, red `-x` while behind and green `+x` when leading.
-- As a detected non-tank, green `-x` while behind and red `+x` when leading.
+- As a detected tank, green while actually tanking and red after losing aggro, independently of
+  whether the raw-threat value is `+x` or `-x`.
+- As a detected non-tank, green below the scaled pull threshold and red while tanking or at/above
+  the threshold, independently of the sign.
 - Orange while above the current target's raw threat but below the aggro pull threshold.
 - No stale badge after a plate disappears or is recycled.
 - Your pet is treated as a competing actor, not added to your threat.
@@ -115,6 +117,8 @@ Expected:
 4. In a group that supports role selection, change the assigned role between tank and damage or
    healer.
 5. Run `/threatplating status` and keep the configurator open during each transition.
+6. If the client exposes `PlayerUtil.IsPlayerEffectivelyTank()`, compare its result while legacy
+   talent APIs are unavailable or restricted.
 
 Expected:
 
@@ -122,6 +126,8 @@ Expected:
   a stronger current signal says otherwise.
 - Defensive Stance and Bear or Dire Bear Form enable tank colors immediately.
 - Cat and caster forms use non-tank colors unless the druid has an explicit tank assignment.
+- Blizzard's effective-tank helper classifies Protection builds when deprecated talent APIs are
+  absent; an unavailable or throwing helper falls back without producing a Lua error.
 - An explicit tank, damage, or healer assignment overrides talent detection.
 - The status command, configurator sample, and visible nameplates switch without a reload.
 
@@ -138,8 +144,8 @@ Expected:
 - Newly visible plates appear and removed plates clear within roughly 0.25 seconds even while
   threat events are continuous.
 - Recycled plates never retain another unit's badge.
-- Current aggro does not produce a green badge when another observed or inferred actor has higher
-  raw threat.
+- Signed values continue to follow the highest observed/inferred raw-threat actor while colors
+  independently follow actual aggro safety during taunts and fixates.
 - Disabling immediately hides every badge; enabling restores eligible plates without a reload.
 
 ## Five-player dungeon
@@ -158,17 +164,41 @@ Cover these cases on multiple simultaneous enemies:
 Watch the counters on non-targeted plates as well as the current target. They must continue updating
 without mouseover or target changes.
 
+## Karazhan-style raid matrix
+
+Repeat the dungeon cases with multiple tanks and mixed melee/ranged damage dealers. Include a tank
+holding aggro below the raw-threat leader during a taunt, a tank losing aggro while still leading
+raw threat, a non-tank crossing and then dropping below the scaled pull threshold, pet threat, and
+an encounter fixate. Verify the sign only follows raw-threat order while green/red follows the
+detected role's aggro safety and orange follows the warning bracket.
+
 ## Raid stress test
 
-Use at least 20 players and enable nameplates at maximum range:
+Use a full 25-player raid and enable nameplates at maximum range:
 
 1. Pull a large trash pack.
-2. Observe update latency while rapidly tab-targeting.
-3. Profile CPU with the same encounter both enabled and disabled.
-4. Confirm there are no growing frame counts after repeated pulls.
+2. Keep 40 hostile nameplates visible while rapidly tab-targeting and generating threat events.
+3. Cover tank and non-tank views, taunt swaps, fixates, threat drops, deaths/resurrections, roster
+   changes, and player/group pet summons and dismissals.
+4. Move between melee and ranged range around both the 110% and 130% pull thresholds.
+5. Include enemies targeting raid actors and at least one actor outside the raid; compare every
+   signed value to the queryable actors shown by a threat meter.
+6. Repeat large pulls while watching Lua errors, addon CPU/frame time, update latency, and pooled
+   frame/overlay counts.
+7. Profile the same encounter enabled and disabled, then repeat enough cycles to expose growing
+   scheduler or frame state.
 
-Acceptance target: visible counters settle within roughly 0.25 seconds and the addon does not
-produce noticeable frame-time spikes.
+Acceptance target: all 40 visible counters settle within roughly eight scheduler frames after a
+full queued refresh, no single frame shows a noticeable threat-query spike, frame/overlay counts
+remain stable, and no restricted query escapes as a Lua error.
+
+## Raw-threat scale verification
+
+On every supported-client update, capture live `UnitDetailedThreatSituation` tuples while a threat
+meter shows the same actors. Verify that dividing `rawThreat` by 100 reproduces the displayed
+threat and that a player at 500, the current target at 1000, and a third queryable actor at 1200
+produces `-700`, not `-500`. Record both melee and ranged tuples around the pull thresholds before
+changing the scale or TOC interface.
 
 ## Default-nameplate variants
 

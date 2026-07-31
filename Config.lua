@@ -224,7 +224,6 @@ local function GetScenario()
 	end
 
 	local isLeader
-	local isWarning = previewState == "warning"
 	if previewState == "safe" then
 		isLeader = isTank
 	elseif previewState == "danger" then
@@ -233,7 +232,7 @@ local function GetScenario()
 		isLeader = true
 	end
 
-	return isTank, isLeader, isWarning
+	return isTank, isLeader, previewState
 end
 
 function addon.GetConfigPreviewScenario()
@@ -329,7 +328,7 @@ local function ApplyPreviewVisuals()
 	end
 
 	applyingPreview = true
-	local isTank, isLeader, isWarning = GetScenario()
+	local isTank, isLeader, safetyState = GetScenario()
 	local sampleText = isLeader and "+12.3k" or "-12.3k"
 	previewBadgeText:SetText(sampleText)
 	addon:ApplyBadgeStyle(previewBadge, previewBadgeText)
@@ -386,7 +385,7 @@ local function ApplyPreviewVisuals()
 	)
 
 	previewBadge:SetSize(addon:GetBadgeWidth(previewBadgeText), db.badgeHeight)
-	addon:ApplyThreatColor(previewBadge, previewBadgeText, isLeader, isWarning, isTank)
+	addon:ApplyThreatColor(previewBadge, previewBadgeText, safetyState)
 
 	previewBadge:ClearAllPoints()
 	previewBadge:SetPoint(
@@ -1647,6 +1646,7 @@ local function AttachWindowScripts(window)
 		EndOwnedColorPicker()
 		addon.configPreviewActive = false
 		sessionSnapshot = nil
+		addon.HideAllNameplates()
 		addon.UpdateAllNameplates()
 	end)
 

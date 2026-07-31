@@ -57,7 +57,12 @@ try {
 		exit $LASTEXITCODE
 	}
 
-	& luacheck @addonFiles tests/test_threat.lua
+	& lua tests/test_raid.lua
+	if ($LASTEXITCODE -ne 0) {
+		exit $LASTEXITCODE
+	}
+
+	& luacheck @addonFiles tests/test_threat.lua tests/test_raid.lua tests/wow_mock.lua
 	if ($LASTEXITCODE -ne 0) {
 		exit $LASTEXITCODE
 	}

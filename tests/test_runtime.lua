@@ -390,7 +390,7 @@ assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 addon.testHarness = true
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.5.1", "runtime version should match the release")
+assert(addon.version == "0.6.0", "runtime version should match the release")
 
 local function NewPlate(unit)
 	local plate = CreateFrame("Frame")
@@ -494,7 +494,13 @@ assert(
 	plate.ThreatPlatingOverlay.text.text == "-500",
 	"tanking state must not override a higher inferred raw threat"
 )
-AssertColor(plate.ThreatPlatingOverlay.text, 1, 0.32, 0.26, "tank deficit should be red")
+AssertColor(
+	plate.ThreatPlatingOverlay.text,
+	0.35,
+	1,
+	0.35,
+	"tank with aggro should stay green despite a raw-threat deficit"
+)
 
 local scansBeforeThreatEvent = mock.nameplateScanCount
 threat["player:nameplate1"] = { false, 1, 50, 50, 50000 }
@@ -587,6 +593,35 @@ mock.talentPoints = { 0, 41, 0 }
 Dispatch("ACTIVE_TALENT_GROUP_CHANGED")
 Update(0.05)
 assert(addon.playerIsTank, "an active Protection talent group should select tank colors")
+
+local legacyTalentAPI = GetTalentTabInfo
+GetTalentTabInfo = nil
+PlayerUtil = {
+	IsPlayerEffectivelyTank = function()
+		return true
+	end,
+}
+mock.talentPoints = { 41, 0, 0 }
+Dispatch("PLAYER_TALENT_UPDATE")
+Update(0.05)
+assert(addon.playerIsTank, "Blizzard's effective-tank helper should work without legacy talents")
+
+PlayerUtil.IsPlayerEffectivelyTank = function()
+	return false
+end
+Dispatch("PLAYER_TALENT_UPDATE")
+Update(0.05)
+assert(not addon.playerIsTank, "an explicit false effective-tank result should be respected")
+
+GetTalentTabInfo = legacyTalentAPI
+PlayerUtil.IsPlayerEffectivelyTank = function()
+	error("unavailable helper")
+end
+mock.talentPoints = { 0, 41, 0 }
+Dispatch("PLAYER_TALENT_UPDATE")
+Update(0.05)
+assert(addon.playerIsTank, "a throwing effective-tank helper should fall back to legacy talents")
+PlayerUtil = nil
 
 mock.isMainTank = 1
 mock.playerClass = "MAGE"
@@ -709,7 +744,7 @@ local queriesBeforeTargetedRefresh = mock.threatQueryCount
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
 Update(0.05)
 assert(
-	mock.threatQueryCount == queriesBeforeTargetedRefresh + 1,
+	mock.threatQueryCount == queriesBeforeTargetedRefresh + 2,
 	"a threat event should query only its affected visible plate"
 )
 
@@ -987,17 +1022,17 @@ assert(
 addon.ApplyDisplaySettings = originalApplyDisplaySettings
 
 addon.db.palette = "blue"
-local red, green, blue = addon:GetSemanticColor(true, false, true)
+local red, green, blue = addon:GetSemanticColor("safe")
 AssertNear(red, 0, "blue palette safe red")
 AssertNear(green, 0.447, "blue palette safe green")
 AssertNear(blue, 0.698, "blue palette safe blue")
-red, green, blue = addon:GetSemanticColor(true, false, false)
-AssertNear(red, 0.835, "non-tank leaders should map to the danger color")
+red, green, blue = addon:GetSemanticColor("danger")
+AssertNear(red, 0.835, "danger should use the configured semantic color")
 AssertNear(green, 0.369, "blue palette danger green")
 AssertNear(blue, 0, "blue palette danger blue")
 
 addon.db.palette = "cyan"
-red, green, blue = addon:GetSemanticColor(false, true, true)
+red, green, blue = addon:GetSemanticColor("warning")
 AssertNear(red, 1, "warning palette red")
 AssertNear(green, 0.80, "warning palette green")
 AssertNear(blue, 0, "warning palette blue")
@@ -1006,7 +1041,7 @@ addon.db.palette = "custom"
 addon.db.safeColor = { 0.11, 0.22, 0.33 }
 addon.db.dangerColor = { 0.44, 0.55, 0.66 }
 addon.db.warningColor = { 0.77, 0.88, 0.99 }
-red, green, blue = addon:GetSemanticColor(true, false, true)
+red, green, blue = addon:GetSemanticColor("safe")
 AssertNear(red, 0.11, "custom safe red")
 AssertNear(green, 0.22, "custom safe green")
 AssertNear(blue, 0.33, "custom safe blue")
@@ -1015,14 +1050,14 @@ local colorBadge = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
 local colorText = colorBadge:CreateFontString(nil, "OVERLAY")
 addon.db.borderMode = "custom"
 addon.db.borderColor = { 0.2, 0.3, 0.4, 0.5 }
-addon:ApplyThreatColor(colorBadge, colorText, true, false, true)
+addon:ApplyThreatColor(colorBadge, colorText, "safe")
 AssertNear(colorBadge.borderColor[1], 0.2, "custom border red")
 AssertNear(colorBadge.borderColor[4], 0.5, "custom border opacity")
 addon.db.borderMode = "off"
-addon:ApplyThreatColor(colorBadge, colorText, true, false, true)
+addon:ApplyThreatColor(colorBadge, colorText, "safe")
 AssertNear(colorBadge.borderColor[4], 0, "disabled borders should be transparent")
 addon.db.borderMode = "semantic"
-addon:ApplyThreatColor(colorBadge, colorText, true, false, true)
+addon:ApplyThreatColor(colorBadge, colorText, "safe")
 AssertNear(colorBadge.borderColor[1], 0.11, "semantic borders should follow text color")
 
 local styledOverlay = disabledPlate.ThreatPlatingOverlay

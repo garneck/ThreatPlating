@@ -57,6 +57,12 @@ do
 	AssertEqual(isLeader, false, "no-data state")
 end
 
+do
+	local delta, isLeader = Threat.CalculateDelta(50000, 50, 120000)
+	AssertNear(delta, -700, "observable third actor beats inferred reference")
+	AssertEqual(isLeader, false, "third-actor deficit state")
+end
+
 AssertEqual(
 	Threat.SelectHigherRawThreat(nil, 90000),
 	90000,
@@ -83,18 +89,6 @@ AssertEqual(
 	"invalid candidate is ignored"
 )
 
-AssertEqual(Threat.ShouldScanContenders(100000, true, 100), true, "tank scan")
-AssertEqual(Threat.ShouldScanContenders(100000, false, 99.5), true, "near-lead scan")
-AssertEqual(Threat.ShouldScanContenders(50000, false, 50), false, "deficit inference")
-AssertEqual(Threat.ShouldScanContenders(nil, false, nil), true, "zero-threat scan")
-AssertEqual(Threat.ShouldScanContenders(0, false, 0), true, "explicit zero-threat scan")
-AssertEqual(Threat.ShouldScanContenders(50000, false, nil), true, "incomplete percentage scan")
-AssertEqual(
-	Threat.ShouldScanContenders(50000, false, math.huge - math.huge),
-	true,
-	"non-finite percentage scan"
-)
-
 AssertEqual(Threat.IsTankRole("PALADIN", 2, nil, "NONE", false), true, "protection paladin")
 AssertEqual(Threat.IsTankRole("PALADIN", 3, nil, "NONE", false), false, "retribution paladin")
 AssertEqual(Threat.IsTankRole("WARRIOR", 3, nil, "NONE", false), true, "protection warrior")
@@ -113,49 +107,97 @@ AssertEqual(
 	true,
 	"main tank assignment priority"
 )
-AssertEqual(Threat.IsDesiredState(true, true), true, "tank leader desired")
-AssertEqual(Threat.IsDesiredState(true, false), false, "tank deficit dangerous")
-AssertEqual(Threat.IsDesiredState(false, true), false, "non-tank leader dangerous")
-AssertEqual(Threat.IsDesiredState(false, false), true, "non-tank deficit desired")
 AssertEqual(
-	Threat.IsPullThresholdWarning(false, 95.5, 105),
+	Threat.IsTankRole("PALADIN", nil, nil, "NONE", false, true),
 	true,
+	"effective-tank helper without talents"
+)
+AssertEqual(
+	Threat.IsTankRole("PALADIN", 2, nil, "NONE", false, false),
+	false,
+	"effective-tank helper overrides legacy talents"
+)
+AssertEqual(
+	Threat.IsTankRole("DRUID", 2, 768, "NONE", false, true),
+	false,
+	"cat form overrides effective-tank helper"
+)
+
+AssertEqual(Threat.GetSafetyState(true, true, 50, 50), "safe", "tank with aggro is safe")
+AssertEqual(
+	Threat.GetSafetyState(true, true, 125, 80),
+	"safe",
+	"tank taunt with raw deficit is safe"
+)
+AssertEqual(
+	Threat.GetSafetyState(true, false, 50, 50),
+	"danger",
+	"tank without aggro is dangerous"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 99.9, 99),
+	"safe",
+	"non-tank below pull threshold is safe"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 100, 99),
+	"danger",
+	"non-tank at pull threshold is dangerous"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, true, 75, 75),
+	"danger",
+	"non-tank with aggro is dangerous"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 95.5, 105),
+	"warning",
 	"melee pull-threshold warning"
 )
 AssertEqual(
-	Threat.IsPullThresholdWarning(false, 92.3, 120),
-	true,
-	"ranged pull-threshold warning"
+	Threat.GetSafetyState(true, false, 92.3, 120),
+	"warning",
+	"ranged warning overrides tank role"
 )
 AssertEqual(
-	Threat.IsPullThresholdWarning(true, 95.5, 105),
-	false,
-	"current tank has no pull-threshold warning"
-)
-AssertEqual(
-	Threat.IsPullThresholdWarning(false, 90, 100),
-	false,
+	Threat.GetSafetyState(false, false, 90, 100),
+	"safe",
 	"equal raw threat is below warning bracket"
 )
 AssertEqual(
-	Threat.IsPullThresholdWarning(false, 100, 110),
-	false,
-	"pull threshold boundary is outside warning bracket"
+	Threat.GetSafetyState(false, false, 100, 110),
+	"danger",
+	"pull threshold boundary is dangerous"
 )
 AssertEqual(
-	Threat.IsPullThresholdWarning(false, nil, 105),
-	false,
-	"missing scaled percentage"
+	Threat.GetSafetyState(false, false, nil, nil),
+	"safe",
+	"valid empty no-threat percentages are safe"
 )
 AssertEqual(
-	Threat.IsPullThresholdWarning(false, 95, nil),
-	false,
-	"missing raw percentage"
+	Threat.GetSafetyState(true, false, nil, nil),
+	"danger",
+	"tank without aggro and no percentages is dangerous"
 )
 AssertEqual(
-	Threat.IsPullThresholdWarning(false, math.huge, 105),
-	false,
-	"non-finite scaled percentage"
+	Threat.GetSafetyState(false, false, nil, 105),
+	nil,
+	"incomplete percentages have no safety state"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, math.huge, 105),
+	nil,
+	"non-finite percentages have no safety state"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, -1, 0),
+	nil,
+	"negative percentages have no safety state"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, nil, 0, 0),
+	nil,
+	"malformed tanking state has no safety state"
 )
 
 AssertEqual(Threat.FormatDelta(12300, true), "+12.3k", "thousands format")

@@ -25,20 +25,7 @@ local PALETTES = {
 	},
 }
 
-function addon:GetSemanticColor(isLeader, isPullThresholdWarning, isTank)
-	if isTank == nil then
-		isTank = self.playerIsTank
-	end
-
-	local semantic
-	if isPullThresholdWarning then
-		semantic = "warning"
-	elseif self.Threat.IsDesiredState(isTank, isLeader) then
-		semantic = "safe"
-	else
-		semantic = "danger"
-	end
-
+function addon:GetSemanticColor(semantic)
 	local color
 	if self.db.palette == "custom" then
 		color = self.db[semantic .. "Color"]
@@ -89,15 +76,9 @@ end
 function addon:ApplyThreatColor(
 	badge,
 	text,
-	isLeader,
-	isPullThresholdWarning,
-	isTank
+	semantic
 )
-	local red, green, blue = self:GetSemanticColor(
-		isLeader,
-		isPullThresholdWarning,
-		isTank
-	)
+	local red, green, blue = self:GetSemanticColor(semantic)
 	text:SetTextColor(red, green, blue, 1)
 
 	if self.db.borderMode == "semantic" then

@@ -2,6 +2,7 @@ local _, addon = ...
 
 local POLL_INTERVAL = addon.updateInterval
 local EVENT_REFRESH_DELAY = addon.eventRefreshDelay
+local MAX_PLATES_PER_FRAME = 5
 local Threat = addon.Threat
 local GetNamePlateForUnit = C_NamePlate.GetNamePlateForUnit
 local GetNamePlates = C_NamePlate.GetNamePlates
@@ -16,10 +17,18 @@ local BACKDROP = addon.BACKDROP
 
 local activeNameplates = {}
 local threatSources = {}
+local urgentQueue = {}
+local urgentGenerations = {}
+local urgentHead = 1
+local urgentTail = 0
+local pollQueue = {}
+local pollGenerations = {}
+local pollHead = 1
+local pollTail = 0
 local elapsedSincePoll = 0
-local elapsedSinceRefresh = 0
-local refreshRequested = true
-local refreshAllRequested = true
+local elapsedSinceUrgentRefresh = 0
+local urgentBatchReady = false
+local urgentBatchTail = 0
 local scanRevision = 0
 local eventFrame = CreateFrame("Frame")
 local referenceVisual = {}
@@ -31,6 +40,61 @@ local function IsFiniteNumber(value)
 		and value ~= -math.huge
 end
 
+local function QueueRecord(record, queueKind)
+	local overlay = record and record.overlay
+	if not overlay or overlay.unit == nil then
+		return
+	end
+
+	if overlay.queuedKind == "urgent" then
+		return
+	end
+	if overlay.queuedKind == queueKind then
+		return
+	end
+
+	overlay.queueGeneration = (overlay.queueGeneration or 0) + 1
+	overlay.queuedKind = queueKind
+	if queueKind == "urgent" then
+		urgentTail = urgentTail + 1
+		urgentQueue[urgentTail] = record
+		urgentGenerations[urgentTail] = overlay.queueGeneration
+	else
+		pollTail = pollTail + 1
+		pollQueue[pollTail] = record
+		pollGenerations[pollTail] = overlay.queueGeneration
+	end
+end
+
+local function QueueAllNameplates(queueKind)
+	for _, record in pairs(activeNameplates) do
+		QueueRecord(record, queueKind)
+	end
+end
+
+local function ClearScheduler()
+	for index = urgentHead, urgentTail do
+		urgentQueue[index] = nil
+		urgentGenerations[index] = nil
+	end
+	for index = pollHead, pollTail do
+		pollQueue[index] = nil
+		pollGenerations[index] = nil
+	end
+	urgentHead = 1
+	urgentTail = 0
+	pollHead = 1
+	pollTail = 0
+	urgentBatchReady = false
+	urgentBatchTail = 0
+
+	for _, record in pairs(activeNameplates) do
+		local overlay = record.overlay
+		overlay.queueGeneration = (overlay.queueGeneration or 0) + 1
+		overlay.queuedKind = nil
+	end
+end
+
 local function GetDominantTalentTree()
 	if type(GetTalentTabInfo) ~= "function" then
 		return nil
@@ -38,7 +102,11 @@ local function GetDominantTalentTree()
 
 	local talentTabCount = 3
 	if type(GetNumTalentTabs) == "function" then
-		talentTabCount = GetNumTalentTabs() or talentTabCount
+		local ok, count = pcall(GetNumTalentTabs)
+		if not ok then
+			return nil
+		end
+		talentTabCount = count or talentTabCount
 	end
 
 	local dominantTree
@@ -46,7 +114,10 @@ local function GetDominantTalentTree()
 	local tied = false
 
 	for index = 1, talentTabCount do
-		local _, _, _, _, pointsSpent = GetTalentTabInfo(index)
+		local ok, _, _, _, _, pointsSpent = pcall(GetTalentTabInfo, index)
+		if not ok then
+			return nil
+		end
 		if type(pointsSpent) == "number" then
 			if pointsSpent > highestPoints then
 				dominantTree = index
@@ -72,14 +143,36 @@ local function GetActiveFormSpellID()
 		return nil
 	end
 
-	local formIndex = GetShapeshiftForm()
+	local ok, formIndex = pcall(GetShapeshiftForm)
+	if not ok then
+		return nil
+	end
 	if not formIndex or formIndex <= 0 then
 		return nil
 	end
 
-	local _, isActive, _, spellID = GetShapeshiftFormInfo(formIndex)
+	local formOK, _, isActive, _, spellID = pcall(GetShapeshiftFormInfo, formIndex)
+	if not formOK then
+		return nil
+	end
 	if isActive then
 		return spellID
+	end
+
+	return nil
+end
+
+local function GetEffectiveTankSignal()
+	local playerUtil = _G.PlayerUtil
+	if type(playerUtil) ~= "table"
+		or type(playerUtil.IsPlayerEffectivelyTank) ~= "function"
+	then
+		return nil
+	end
+
+	local ok, isTank = pcall(playerUtil.IsPlayerEffectivelyTank)
+	if ok and type(isTank) == "boolean" then
+		return isTank
 	end
 
 	return nil
@@ -88,21 +181,47 @@ end
 local function DetectPlayerTankRole()
 	local assignedRole = "NONE"
 	if type(UnitGroupRolesAssigned) == "function" then
-		assignedRole = UnitGroupRolesAssigned("player") or assignedRole
+		local ok, role = pcall(UnitGroupRolesAssigned, "player")
+		if ok then
+			assignedRole = role or assignedRole
+		end
 	end
 
 	local isMainTank = false
 	if type(GetPartyAssignment) == "function" then
-		isMainTank = GetPartyAssignment("MAINTANK", "player", true) and true or false
+		local ok, assigned = pcall(GetPartyAssignment, "MAINTANK", "player", true)
+		isMainTank = ok and assigned and true or false
 	end
 
 	local _, classToken = UnitClass("player")
+	local activeFormSpellID = GetActiveFormSpellID()
+	if isMainTank or assignedRole == "TANK" then
+		return true
+	end
+	if assignedRole == "HEALER" or assignedRole == "DAMAGER" then
+		return false
+	end
+	if classToken == "DRUID" then
+		return Threat.IsTankRole(
+			classToken,
+			nil,
+			activeFormSpellID,
+			assignedRole,
+			isMainTank
+		)
+	end
+	if classToken == "WARRIOR" and activeFormSpellID == 71 then
+		return true
+	end
+
+	local effectiveTank = GetEffectiveTankSignal()
 	return Threat.IsTankRole(
 		classToken,
-		GetDominantTalentTree(),
-		GetActiveFormSpellID(),
+		effectiveTank == nil and GetDominantTalentTree() or nil,
+		activeFormSpellID,
 		assignedRole,
-		isMainTank
+		isMainTank,
+		effectiveTank
 	)
 end
 
@@ -113,8 +232,7 @@ function addon:RefreshPlayerRole()
 	end
 
 	self.playerIsTank = isTank
-	refreshRequested = true
-	refreshAllRequested = true
+	QueueAllNameplates("poll")
 
 	if self.RefreshConfig then
 		self.RefreshConfig()
@@ -232,6 +350,7 @@ local function CreateOverlay(nameplate)
 	end
 
 	nameplate.ThreatPlatingOverlay = overlay
+	overlay.queueGeneration = 0
 	overlay.record = {
 		nameplate = nameplate,
 		overlay = overlay,
@@ -239,7 +358,7 @@ local function CreateOverlay(nameplate)
 	return overlay
 end
 
-local function DisplayValue(record, value, isLeader, isPullThresholdWarning, isTank)
+local function DisplayValue(record, value, isLeader, safetyState)
 	local overlay = record.overlay
 	local text
 	if overlay.cachedDisplayValue == value
@@ -276,20 +395,14 @@ local function DisplayValue(record, value, isLeader, isPullThresholdWarning, isT
 	end
 
 	if styleChanged
-		or overlay.colorIsLeader ~= isLeader
-		or overlay.colorIsPullThresholdWarning ~= isPullThresholdWarning
-		or overlay.colorIsTank ~= isTank
+		or overlay.colorSafetyState ~= safetyState
 	then
 		addon:ApplyThreatColor(
 			overlay,
 			overlay.text,
-			isLeader,
-			isPullThresholdWarning,
-			isTank
+			safetyState
 		)
-		overlay.colorIsLeader = isLeader
-		overlay.colorIsPullThresholdWarning = isPullThresholdWarning
-		overlay.colorIsTank = isTank
+		overlay.colorSafetyState = safetyState
 	end
 
 	if not overlay:IsShown() then
@@ -303,7 +416,8 @@ local function ReleaseNameplate(unit, record)
 	end
 
 	activeNameplates[unit] = nil
-	record.refreshRequested = false
+	record.overlay.queueGeneration = (record.overlay.queueGeneration or 0) + 1
+	record.overlay.queuedKind = nil
 	if record.overlay.unit == unit then
 		record.overlay.unit = nil
 		record.overlay:Hide()
@@ -329,11 +443,51 @@ local function QueryThreat(sourceUnit, enemyUnit)
 	local ok, isTanking, status, scaledPercentage, rawPercentage, rawThreat =
 		pcall(UnitDetailedThreatSituation, sourceUnit, enemyUnit)
 
-	if not ok or type(status) ~= "number" or type(rawThreat) ~= "number" then
-		return false, nil, nil, nil
+	if not ok then
+		return false
 	end
 
-	return isTanking == true, scaledPercentage, rawPercentage, rawThreat
+	if isTanking == nil
+		and status == nil
+		and scaledPercentage == nil
+		and rawPercentage == nil
+		and rawThreat == nil
+	then
+		return true, false, nil, nil, 0
+	end
+
+	if type(isTanking) ~= "boolean"
+		or not IsFiniteNumber(status)
+		or status < 0
+		or status > 3
+		or status ~= math.floor(status)
+	then
+		return false
+	end
+
+	if (scaledPercentage == nil) ~= (rawPercentage == nil) then
+		return false
+	end
+	if scaledPercentage ~= nil
+		and (not IsFiniteNumber(scaledPercentage)
+			or scaledPercentage < 0
+			or not IsFiniteNumber(rawPercentage)
+			or rawPercentage < 0)
+	then
+		return false
+	end
+
+	if rawThreat ~= nil
+		and (not IsFiniteNumber(rawThreat) or rawThreat < 0)
+	then
+		return false
+	end
+
+	return true,
+		isTanking,
+		scaledPercentage,
+		rawPercentage,
+		rawThreat or 0
 end
 
 local function CollectHighestContenderThreat(enemyUnit, enemyTarget)
@@ -349,7 +503,10 @@ local function CollectHighestContenderThreat(enemyUnit, enemyTarget)
 			end
 
 			if not UnitIsUnit(sourceUnit, "player") then
-				local _, _, _, rawThreat = QueryThreat(sourceUnit, enemyUnit)
+				local valid, _, _, _, rawThreat = QueryThreat(sourceUnit, enemyUnit)
+				if not valid then
+					return false
+				end
 				highestRawThreat = Threat.SelectHigherRawThreat(
 					highestRawThreat,
 					rawThreat
@@ -361,7 +518,10 @@ local function CollectHighestContenderThreat(enemyUnit, enemyTarget)
 	-- This covers an NPC or out-of-group actor currently tanking the enemy.
 	if not targetAlreadyIncluded then
 		if not UnitIsUnit(enemyTarget, "player") then
-			local _, _, _, rawThreat = QueryThreat(enemyTarget, enemyUnit)
+			local valid, _, _, _, rawThreat = QueryThreat(enemyTarget, enemyUnit)
+			if not valid then
+				return false
+			end
 			highestRawThreat = Threat.SelectHigherRawThreat(
 				highestRawThreat,
 				rawThreat
@@ -369,7 +529,7 @@ local function CollectHighestContenderThreat(enemyUnit, enemyTarget)
 		end
 	end
 
-	return highestRawThreat
+	return true, highestRawThreat
 end
 
 local function UpdateNameplate(unit, record)
@@ -384,8 +544,8 @@ local function UpdateNameplate(unit, record)
 	end
 
 	if addon.configPreviewActive then
-		local isTank, isLeader, isWarning = addon:GetConfigPreviewScenario()
-		DisplayValue(record, 12300, isLeader, isWarning, isTank)
+		local _, isLeader, safetyState = addon:GetConfigPreviewScenario()
+		DisplayValue(record, 12300, isLeader, safetyState)
 		return
 	end
 
@@ -394,18 +554,39 @@ local function UpdateNameplate(unit, record)
 			record,
 			12300,
 			true,
-			addon.testPullThresholdWarning,
-			addon.playerIsTank
+			addon.testPullThresholdWarning and "warning"
+				or (addon.playerIsTank and "safe" or "danger")
 		)
 		return
 	end
 
-	local isTanking, scaledPercentage, rawPercentage, playerRawThreat =
+	local playerQueryValid,
+		isTanking,
+		scaledPercentage,
+		rawPercentage,
+		playerRawThreat =
 		QueryThreat("player", unit)
-	local highestContenderRawThreat
+	if not playerQueryValid then
+		record.overlay:Hide()
+		return
+	end
 
-	if Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage) then
-		highestContenderRawThreat = CollectHighestContenderThreat(unit, record.targetUnit)
+	local safetyState = Threat.GetSafetyState(
+		addon.playerIsTank,
+		isTanking,
+		scaledPercentage,
+		rawPercentage
+	)
+	if not safetyState then
+		record.overlay:Hide()
+		return
+	end
+
+	local contenderQueryValid, highestContenderRawThreat =
+		CollectHighestContenderThreat(unit, record.targetUnit)
+	if not contenderQueryValid then
+		record.overlay:Hide()
+		return
 	end
 
 	local delta, isLeader = Threat.CalculateDelta(
@@ -419,12 +600,7 @@ local function UpdateNameplate(unit, record)
 		return
 	end
 
-	local isPullThresholdWarning = Threat.IsPullThresholdWarning(
-		isTanking,
-		scaledPercentage,
-		rawPercentage
-	)
-	DisplayValue(record, delta, isLeader, isPullThresholdWarning, addon.playerIsTank)
+	DisplayValue(record, delta, isLeader, safetyState)
 end
 
 local function AddThreatSource(unit)
@@ -452,8 +628,7 @@ local function RebuildThreatSources()
 		AddThreatSource("pet")
 	end
 
-	refreshRequested = true
-	refreshAllRequested = true
+	QueueAllNameplates("poll")
 end
 
 local function AddNameplate(unit)
@@ -492,8 +667,7 @@ local function AddNameplate(unit)
 	local record = overlay.record
 	activeNameplates[unit] = record
 	record.targetUnit = unit .. "target"
-	record.refreshRequested = true
-	refreshRequested = true
+	QueueRecord(record, "urgent")
 	return record
 end
 
@@ -531,26 +705,110 @@ function addon:ScanVisibleNameplates()
 	end
 end
 
-function addon.UpdateAllNameplates()
-	for unit, record in pairs(activeNameplates) do
-		record.refreshRequested = false
-		UpdateNameplate(unit, record)
+local function PopQueuedRecord(queueKind, maximumTail)
+	local queue
+	local generations
+	local head
+	local tail
+	local physicalTail
+	if queueKind == "urgent" then
+		queue = urgentQueue
+		generations = urgentGenerations
+		head = urgentHead
+		physicalTail = urgentTail
+		tail = maximumTail and math.min(maximumTail, physicalTail) or physicalTail
+	else
+		queue = pollQueue
+		generations = pollGenerations
+		head = pollHead
+		physicalTail = pollTail
+		tail = physicalTail
 	end
 
-	refreshRequested = false
-	refreshAllRequested = false
-end
+	local result
+	while head <= tail do
+		local record = queue[head]
+		local generation = generations[head]
+		queue[head] = nil
+		generations[head] = nil
+		head = head + 1
 
-local function UpdateRequestedNameplates()
-	for unit, record in pairs(activeNameplates) do
-		if record.refreshRequested then
-			record.refreshRequested = false
-			UpdateNameplate(unit, record)
+		local overlay = record and record.overlay
+		if overlay
+			and overlay.queueGeneration == generation
+			and overlay.queuedKind == queueKind
+			and overlay.unit ~= nil
+		then
+			overlay.queuedKind = nil
+			result = record
+			break
 		end
 	end
+
+	if head > physicalTail then
+		head = 1
+		physicalTail = 0
+	end
+	if queueKind == "urgent" then
+		urgentHead = head
+		urgentTail = physicalTail
+	else
+		pollHead = head
+		pollTail = physicalTail
+	end
+
+	return result
+end
+
+local function ProcessQueuedNameplates()
+	local processed = 0
+	if urgentBatchReady then
+		while processed < MAX_PLATES_PER_FRAME do
+			local record = PopQueuedRecord("urgent", urgentBatchTail)
+			if not record then
+				urgentBatchReady = false
+				urgentBatchTail = 0
+				elapsedSinceUrgentRefresh = 0
+				break
+			end
+
+			UpdateNameplate(record.overlay.unit, record)
+			processed = processed + 1
+		end
+		if urgentBatchReady
+			and (urgentTail == 0 or urgentHead > urgentBatchTail)
+		then
+			urgentBatchReady = false
+			urgentBatchTail = 0
+			elapsedSinceUrgentRefresh = 0
+		end
+	end
+
+	while processed < MAX_PLATES_PER_FRAME do
+		local record = PopQueuedRecord("poll")
+		if not record then
+			break
+		end
+
+		UpdateNameplate(record.overlay.unit, record)
+		processed = processed + 1
+	end
+end
+
+function addon.UpdateAllNameplates()
+	if addon.configPreviewActive or addon.testModeUntil > GetTime() then
+		ClearScheduler()
+		for unit, record in pairs(activeNameplates) do
+			UpdateNameplate(unit, record)
+		end
+		return
+	end
+
+	QueueAllNameplates("poll")
 end
 
 function addon.HideAllNameplates()
+	ClearScheduler()
 	for _, record in pairs(activeNameplates) do
 		record.overlay:Hide()
 	end
@@ -741,9 +999,7 @@ function addon.ApplyDisplaySettings(changeKind)
 			addon:ApplyThreatColor(
 				overlay,
 				overlay.text,
-				overlay.colorIsLeader,
-				overlay.colorIsPullThresholdWarning,
-				overlay.colorIsTank
+				overlay.colorSafetyState
 			)
 		end
 	end
@@ -769,8 +1025,7 @@ local function RequestNameplateRefresh(unit)
 		return
 	end
 
-	record.refreshRequested = true
-	refreshRequested = true
+	QueueRecord(record, "urgent")
 end
 
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
@@ -810,35 +1065,49 @@ end)
 eventFrame:SetScript("OnUpdate", function(_, elapsed)
 	if not addon.enabled then
 		elapsedSincePoll = 0
-		elapsedSinceRefresh = 0
-		refreshRequested = false
-		refreshAllRequested = false
+		elapsedSinceUrgentRefresh = 0
+		if urgentHead <= urgentTail or pollHead <= pollTail then
+			ClearScheduler()
+		end
 		return
 	end
 
 	elapsedSincePoll = elapsedSincePoll + elapsed
-	elapsedSinceRefresh = elapsedSinceRefresh + elapsed
+	elapsedSinceUrgentRefresh = elapsedSinceUrgentRefresh + elapsed
 
 	local dueForPoll = elapsedSincePoll >= POLL_INTERVAL
-	local dueForEventRefresh = refreshRequested and elapsedSinceRefresh >= EVENT_REFRESH_DELAY
-	if not dueForPoll and not dueForEventRefresh then
-		return
-	end
-
 	if dueForPoll then
 		elapsedSincePoll = 0
 		addon:ScanVisibleNameplates()
+		QueueAllNameplates("poll")
 	end
 
-	elapsedSinceRefresh = 0
-	if dueForPoll or refreshAllRequested then
-		addon.UpdateAllNameplates()
-	else
-		UpdateRequestedNameplates()
+	if not urgentBatchReady
+		and urgentHead <= urgentTail
+		and elapsedSinceUrgentRefresh >= EVENT_REFRESH_DELAY
+	then
+		urgentBatchReady = true
+		urgentBatchTail = urgentTail
 	end
-	refreshRequested = false
-	refreshAllRequested = false
+
+	ProcessQueuedNameplates()
 end)
+
+if addon.testHarness then
+	addon.NameplatesTest = {
+		getActiveCount = function()
+			local count = 0
+			for _ in pairs(activeNameplates) do
+				count = count + 1
+			end
+			return count
+		end,
+		getQueueLengths = function()
+			return math.max(0, urgentTail - urgentHead + 1),
+				math.max(0, pollTail - pollHead + 1)
+		end,
+	}
+end
 
 RebuildThreatSources()
 addon:RefreshPlayerRole()

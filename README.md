@@ -8,11 +8,12 @@ For every visible, attackable NPC with meaningful threat data, it shows:
 - `+x` when you have the highest threat. `x` is your lead over the highest queryable contender.
 - `-x` when you are behind. `x` is the gap to the threat lead.
 
-Colors adapt to your detected role: tanks see a safe lead in green and a deficit in red, while
-non-tanks see a safe deficit in green and taking the lead in red. Explicit group/raid tank
-assignments take priority. Otherwise, the addon detects Protection paladin and warrior talent
-builds, warrior Defensive Stance, and druid Bear or Dire Bear Form. Feral druids therefore switch
-between tank colors in bear form and non-tank colors in cat or caster form.
+Color describes aggro safety independently from that sign. Detected tanks are green while actually
+tanking and red after losing aggro, even during taunts or fixates where raw-threat order can differ
+from the current target. Detected non-tanks are green below the distance-scaled pull threshold and
+red while tanking or at/above that threshold. Explicit group/raid assignments take priority.
+Otherwise, the addon uses druid form and warrior stance, Blizzard's effective-tank helper, and then
+legacy Protection talent detection when available. Bear and cat behavior remains form-specific.
 
 Orange is a role-independent warning: your raw threat is already above the enemy's current target,
 but you have not crossed the aggro pull threshold yet. That threshold depends on distance, not
@@ -26,21 +27,23 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.5.1` addon targeting TBC Anniversary client
+This repository contains a working `0.6.0` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
 
-- Nameplate-specific threat events refresh only the affected visible plate, capped at 20 times per
-  second.
-- An independent 0.20-second poll catches missed or coalesced events and reconciles recycled
-  nameplates even while threat events are firing continuously.
+- Nameplate-specific threat events enter a deduplicated urgent queue; urgent batches begin no more
+  than 20 times per second and run ahead of ordinary queued work.
+- An independent 0.20-second poll reconciles missed events and recycled nameplates into a reusable
+  poll queue even while threat events are firing continuously.
+- At most five complete plates are queried per frame. In a full 25-player raid with 25 pets this is
+  at most 255 threat calls per frame, including a possible out-of-group target for each plate.
 
-When you are below the lead, the addon uses the API's raw percentage to infer the leader even when
-that actor does not have a party or raid token. When you are leading—or have zero threat—it queries
-party/raid members, their pets, your pet, and the enemy's current target. Aggro ownership does not
-override the raw-threat comparison during taunts or fixates. Contender scans retain only the
-highest raw threat, avoiding per-plate list allocation.
+Every due plate queries every existing party/raid member, group pet, the player's separate pet, and
+a non-duplicate enemy target before selecting the highest observable contender. The API's raw
+percentage is retained only as a reference for a higher actor that has no queryable unit token.
+Aggro ownership does not override the signed raw-threat comparison during taunts or fixates.
+Contender scans retain only the highest raw threat and allocate no per-plate list.
 
 ## Install for development
 
@@ -97,10 +100,11 @@ immediately.
 ## Important API limitation
 
 WoW exposes threat for a specified source unit and enemy unit; it does not expose an enumerable
-complete threat table. The result is exact for queryable group members and their pets. An unrelated
-outside actor that is neither inferable from your raw percentage nor available as the enemy's
-current target can be invisible to addons. This is an API boundary, not something polling faster
-can solve.
+complete server threat table. The result is exact across successfully queryable group members,
+their separate pets, the enemy target, and any higher reference inferable from the player's API
+percentage. An unrelated outside actor that is neither inferable nor available through one of
+those unit tokens can remain invisible to addons. This is an API boundary, not something polling
+faster can solve.
 
 The badge stays hidden when the API provides no meaningful threat data.
 
@@ -113,7 +117,8 @@ Run all local checks from PowerShell:
 ```
 
 The checks require Lua 5.1, `luac`, and `luacheck`. They cover pure threat math, database
-migration/persistence, and a mocked nameplate/configurator lifecycle smoke test.
+migration/persistence, a mocked nameplate/configurator lifecycle smoke test, and a deterministic
+25-player, 25-pet, 40-nameplate raid scheduler suite.
 
 See [AGENTS.md](AGENTS.md) for architecture and contribution invariants, and
 [docs/TESTING.md](docs/TESTING.md) for the in-game test matrix.

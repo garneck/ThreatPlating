@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 - 2026-07-31
+
+- Fix raid deficits by scanning every existing group member, group pet, player pet, and
+  non-duplicate enemy target before using the API percentage to account for an unqueryable
+  reference actor.
+- Decouple color from the sign: tanks are green while actually tanking and red after losing aggro;
+  non-tanks are green below the pull threshold and red while tanking or at/above it. Orange still
+  overrides both roles inside the scaled pull-threshold warning bracket.
+- Validate every required threat tuple, accept the API's valid nil-threat result as zero, and hide
+  safely on restricted, malformed, or meaningless data.
+- Resolve roles through main-tank and explicit assignments, form/stance rules, Blizzard's guarded
+  effective-tank helper, and legacy talent trees in that order.
+- Stagger exact work through reusable urgent and poll queues, deduplicate overlapping requests,
+  verify pooled ownership when dequeuing, and cap processing at five complete plates per frame.
+- Hide configurator samples immediately on close, then queue restoration of real threat values.
+- Add a deterministic 25-player, 25-pet, 40-nameplate raid suite covering exact third-actor
+  deficits, sign-independent safety colors, pets, aliases, roster changes, restrictions, recycling,
+  event priority/coalescing, the 255-query frame budget, and stable scheduler/frame counts.
+
 ## 0.5.1 - 2026-07-30
 
 - Preserve one database table identity through `ADDON_LOADED`, adopt the client's final

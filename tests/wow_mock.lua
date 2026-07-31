@@ -1,23 +1,69 @@
 return function(Frame)
 	local mock = {
 		activeFormSpellID = nil,
+		attackable = {},
 		assignedRole = "NONE",
+		controlledUnits = {},
+		currentFrame = 0,
 		frames = {},
+		groupMode = "solo",
+		groupSize = 0,
 		isMainTank = false,
 		nameplateScanCount = 0,
 		now = 100,
+		plateOrder = {},
 		plates = {},
 		playerClass = "WARRIOR",
+		playerUnits = {},
+		subgroupSize = 0,
 		talentPoints = { 0, 0, 41 },
 		targetPlateUnit = nil,
 		threat = {},
 		threatQueryCount = 0,
+		threatQueriesByFrame = {},
+		threatQueryLog = {},
+		unitIdentity = {},
 		units = {
 			nameplate1 = true,
 			pet = true,
 			player = true,
 		},
 	}
+
+	function mock:BeginFrame()
+		self.currentFrame = self.currentFrame + 1
+		self.threatQueriesByFrame[self.currentFrame] = 0
+	end
+
+	function mock:SetRaid(size)
+		self.groupMode = "raid"
+		self.groupSize = size
+		self.subgroupSize = 0
+		for index = 1, size do
+			local raidUnit = "raid" .. index
+			local raidPet = "raidpet" .. index
+			self.units[raidUnit] = true
+			self.units[raidPet] = true
+			self.unitIdentity[raidUnit] = "raid-member-" .. index
+			self.unitIdentity[raidPet] = "raid-pet-" .. index
+		end
+		self.unitIdentity.player = self.unitIdentity.raid1
+		self.unitIdentity.pet = self.unitIdentity.raidpet1
+	end
+
+	function mock:SetParty(size)
+		self.groupMode = "party"
+		self.groupSize = size + 1
+		self.subgroupSize = size
+		for index = 1, size do
+			local partyUnit = "party" .. index
+			local partyPet = "partypet" .. index
+			self.units[partyUnit] = true
+			self.units[partyPet] = true
+			self.unitIdentity[partyUnit] = "party-member-" .. index
+			self.unitIdentity[partyPet] = "party-pet-" .. index
+		end
+	end
 
 	function CreateFrame(frameType, name, parent, template)
 		local frame = setmetatable({
@@ -53,18 +99,27 @@ return function(Frame)
 	function C_NamePlate.GetNamePlates()
 		mock.nameplateScanCount = mock.nameplateScanCount + 1
 		local visible = {}
-		for _, plate in pairs(mock.plates) do
-			visible[#visible + 1] = plate
+		if #mock.plateOrder > 0 then
+			for _, unit in ipairs(mock.plateOrder) do
+				local plate = mock.plates[unit]
+				if plate then
+					visible[#visible + 1] = plate
+				end
+			end
+		else
+			for _, plate in pairs(mock.plates) do
+				visible[#visible + 1] = plate
+			end
 		end
 		return visible
 	end
 
 	function GetNumGroupMembers()
-		return 0
+		return mock.groupSize
 	end
 
 	function GetNumSubgroupMembers()
-		return 0
+		return mock.subgroupSize
 	end
 
 	function GetNumTalentTabs()
@@ -100,14 +155,17 @@ return function(Frame)
 	end
 
 	function IsInGroup()
-		return false
+		return mock.groupMode == "party" or mock.groupMode == "raid"
 	end
 
 	function IsInRaid()
-		return false
+		return mock.groupMode == "raid"
 	end
 
 	function UnitCanAttack(_, unit)
+		if mock.attackable[unit] ~= nil then
+			return mock.attackable[unit]
+		end
 		return unit == "nameplate1" or unit == "nameplate2" or unit == "nameplate3"
 	end
 
@@ -117,7 +175,19 @@ return function(Frame)
 
 	function UnitDetailedThreatSituation(source, enemy)
 		mock.threatQueryCount = mock.threatQueryCount + 1
-		local result = mock.threat[source .. ":" .. enemy]
+		mock.threatQueriesByFrame[mock.currentFrame] =
+			(mock.threatQueriesByFrame[mock.currentFrame] or 0) + 1
+		mock.threatQueryLog[#mock.threatQueryLog + 1] = {
+			enemy = enemy,
+			frame = mock.currentFrame,
+			source = source,
+		}
+		local result
+		if mock.threatHandler then
+			result = mock.threatHandler(source, enemy)
+		else
+			result = mock.threat[source .. ":" .. enemy]
+		end
 		if result == "error" then
 			error("restricted threat query")
 		end
@@ -132,14 +202,20 @@ return function(Frame)
 	end
 
 	function UnitIsPlayer(unit)
+		if mock.playerUnits[unit] ~= nil then
+			return mock.playerUnits[unit]
+		end
 		return unit == "nameplate2"
 	end
 
 	function UnitIsUnit(left, right)
-		return left == right
+		return (mock.unitIdentity[left] or left) == (mock.unitIdentity[right] or right)
 	end
 
 	function UnitPlayerControlled(unit)
+		if mock.controlledUnits[unit] ~= nil then
+			return mock.controlledUnits[unit]
+		end
 		return unit == "nameplate2"
 	end
 

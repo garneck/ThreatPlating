@@ -4,7 +4,6 @@ local Threat = {}
 addon.Threat = Threat
 
 local RAW_THREAT_SCALE = 0.01
-local LEADER_PERCENT_EPSILON = 0.5
 local THREAT_EPSILON = 0.005
 local BEAR_FORM_SPELL_ID = 5487
 local DIRE_BEAR_FORM_SPELL_ID = 9634
@@ -24,24 +23,6 @@ local function NormalizeRawThreat(rawThreat)
 
 	-- TBC Anniversary reports raw threat in hundredths of a displayed threat unit.
 	return rawThreat * RAW_THREAT_SCALE
-end
-
-function Threat.ShouldScanContenders(playerRawThreat, isTanking, rawPercentage)
-	if not IsFiniteNumber(playerRawThreat) or playerRawThreat <= 0 then
-		return true
-	end
-
-	if isTanking then
-		return true
-	end
-
-	if not IsFiniteNumber(rawPercentage) or rawPercentage <= 0 then
-		return true
-	end
-
-	-- At (or above) the top of the table, the API percentage cannot tell us the
-	-- runner-up. We scan queryable group units to calculate the positive lead.
-	return rawPercentage >= (100 - LEADER_PERCENT_EPSILON)
 end
 
 function Threat.SelectHigherRawThreat(currentRawThreat, candidateRawThreat)
@@ -65,7 +46,8 @@ function Threat.IsTankRole(
 	dominantTalentTree,
 	activeFormSpellID,
 	assignedRole,
-	isMainTank
+	isMainTank,
+	isEffectivelyTank
 )
 	if isMainTank or assignedRole == "TANK" then
 		return true
@@ -82,32 +64,87 @@ function Threat.IsTankRole(
 			or activeFormSpellID == DIRE_BEAR_FORM_SPELL_ID
 	end
 
-	if classToken == "PALADIN" then
-		return dominantTalentTree == 2
-	end
-
 	if classToken == "WARRIOR" then
-		return dominantTalentTree == 3
-			or activeFormSpellID == DEFENSIVE_STANCE_SPELL_ID
+		if activeFormSpellID == DEFENSIVE_STANCE_SPELL_ID then
+			return true
+		end
 	end
 
-	return false
+	if type(isEffectivelyTank) == "boolean" then
+		return isEffectivelyTank
+	end
+
+	return (classToken == "PALADIN" and dominantTalentTree == 2)
+		or (classToken == "WARRIOR" and dominantTalentTree == 3)
 end
 
-function Threat.IsDesiredState(isTank, isLeader)
-	return (isTank and isLeader) or (not isTank and not isLeader)
-end
+function Threat.GetSafetyState(
+	roleIsTank,
+	isTanking,
+	scaledPercentage,
+	rawPercentage
+)
+	if type(isTanking) ~= "boolean" then
+		return nil
+	end
 
-function Threat.IsPullThresholdWarning(isTanking, scaledPercentage, rawPercentage)
-	return not isTanking
-		and IsFiniteNumber(rawPercentage)
+	local scaledMissing = scaledPercentage == nil
+	local rawMissing = rawPercentage == nil
+	if scaledMissing ~= rawMissing then
+		return nil
+	end
+	if not scaledMissing then
+		if not IsFiniteNumber(scaledPercentage)
+			or scaledPercentage < 0
+			or not IsFiniteNumber(rawPercentage)
+			or rawPercentage < 0
+		then
+			return nil
+		end
+	end
+
+	if not isTanking
+		and rawPercentage ~= nil
 		and rawPercentage > 100
-		and IsFiniteNumber(scaledPercentage)
-		and scaledPercentage > 0
 		and scaledPercentage < 100
+	then
+		return "warning"
+	end
+
+	if roleIsTank then
+		return isTanking and "safe" or "danger"
+	end
+
+	if isTanking then
+		return "danger"
+	end
+
+	-- A completely empty percentage pair is the valid no-threat API result.
+	if scaledPercentage == nil or scaledPercentage < 100 then
+		return "safe"
+	end
+
+	return "danger"
 end
 
 function Threat.CalculateDelta(playerRawThreat, rawPercentage, highestContenderRawThreat)
+	if playerRawThreat ~= nil
+		and (not IsFiniteNumber(playerRawThreat) or playerRawThreat < 0)
+	then
+		return nil, false
+	end
+	if rawPercentage ~= nil
+		and (not IsFiniteNumber(rawPercentage) or rawPercentage < 0)
+	then
+		return nil, false
+	end
+	if highestContenderRawThreat ~= nil
+		and (not IsFiniteNumber(highestContenderRawThreat)
+			or highestContenderRawThreat < 0)
+	then
+		return nil, false
+	end
+
 	local playerThreat = NormalizeRawThreat(playerRawThreat)
 	local contenderThreat = NormalizeRawThreat(highestContenderRawThreat)
 

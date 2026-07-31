@@ -10,8 +10,10 @@ The counter semantics are fixed:
 - `+x`: the player has the highest observed/inferred raw threat; `x` is the lead over the highest
   other queryable actor.
 - `-x`: another actor leads; `x` is the player's deficit to that lead.
-- For a detected tank, `+x` is green and `-x` is red.
-- For a detected non-tank, `-x` is green and `+x` is red.
+- For a detected tank, green means the player is actually tanking and red means aggro has been
+  lost; the sign remains an independent raw-threat comparison.
+- For a detected non-tank, green means the player is below the scaled pull threshold and red means
+  the player is tanking or has reached that threshold; the sign remains independent.
 - Orange overrides the role color while the player has more raw threat than the enemy's current
   target but remains below the distance-scaled aggro pull threshold.
 - The player's pet remains a separate threat actor. Do not merge pet threat into player threat.
@@ -34,7 +36,7 @@ references in `README.md`, and only then change `## Interface`.
 ## Architecture
 
 - `Init.lua`: addon identity and slash commands.
-- `Threat.lua`: pure threat math, scan decision, and compact number formatting.
+- `Threat.lua`: pure threat math, safety-state selection, and compact number formatting.
 - `Display.lua`: shared palette, typography, backdrop, and badge rendering helpers.
 - `Nameplates.lua`: Blizzard API calls, roster cache, plate lifecycle, polling, and rendering.
 - `Config.lua`: saved layout editor, draggable/resizable preview, Settings category, and AddOn
@@ -43,6 +45,8 @@ references in `README.md`, and only then change `## Interface`.
 - `tests/test_database.lua`: isolated saved-variable migration and persistence coverage.
 - `tests/wow_mock.lua`: fresh mocked WoW globals and mutable runtime state per fixture.
 - `tests/test_runtime.lua`: mocked nameplate lifecycle smoke test.
+- `tests/test_raid.lua`: deterministic 25-player, 25-pet, 40-nameplate correctness and scheduler
+  budget suite.
 
 Keep calculations in `Threat.lua` so they remain runnable outside WoW. Keep all frame and unit-token
 access in `Nameplates.lua`.
@@ -66,6 +70,8 @@ access in `Nameplates.lua`.
    are unavailable or restricted.
 9. Apply configurator changes through `addon.ApplyDisplaySettings()` so existing pooled overlays
    are re-anchored and restyled in place.
+10. Queue real threat refreshes, prioritize affected threat-event plates, and process at most five
+    complete plates per frame.
 
 ## Configuration invariants
 
@@ -93,23 +99,21 @@ API's `scaledPercentage` rather than duplicating range checks: it normalizes the
 threshold to 100%. The orange warning bracket requires `rawPercentage > 100`,
 `scaledPercentage < 100`, and `isTanking == false`.
 
-To avoid a group-size × plate-count scan on every tick:
+Every due plate scans all existing party/raid members, group pets, the player's separate pet, and a
+non-duplicate enemy target before selecting the highest contender. The API percentage may still
+infer a higher reference actor that has no queryable unit token, but it must never replace an exact
+higher observable actor. Preserve the zero-threat `-x` case and the leading `+x` runner-up case.
 
-- When the player is clearly below the lead, infer the reference lead from
-  `playerThreat * 100 / rawPercentage`.
-- Scan group contenders when the player is tanking, is at least 99.5% of the reference, has zero
-  threat, or receives incomplete percentage data.
-- During a scan, include party/raid members, group pets, the player's pet, and the enemy's current
-  target.
-
-Any optimization must preserve the zero-threat `-x` case and the leading `+x` runner-up case.
+Treat a completely nil threat tuple as valid zero threat. Hide the badge if the player query fails,
+any required query is restricted or malformed, or the resulting table has no meaningful threat.
 
 ## Performance budget
 
 - Do not create frames or persistent tables in the normal per-plate update path.
-- A short-lived contender list is currently acceptable only on scan-required plates.
+- Process at most five complete plate scans per frame. With 25 raid members and 25 raid pets, this
+  is at most 255 threat calls per frame including one outsider target per plate.
 - Do not poll faster than 0.10 seconds without profiling a 40-player raid and 40 visible plates.
-- Prefer inference when safely below the lead.
+- Reuse urgent and poll queues; do not allocate frames or persistent tables per refresh.
 
 ## Validation before handoff
 
