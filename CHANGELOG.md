@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.2 - 2026-07-31
+
+- Reduce the independent nameplate reconciliation fallback from 0.20 to 0.10 seconds so missed
+  threat events and pooled-frame changes recover sooner during ordinary combat.
+- Retain the five-plate per-frame scheduler cap, so the faster cadence increases update frequency
+  without increasing the maximum amount of exact threat work performed in one frame.
+
 ## 0.6.1 - 2026-07-31
 
 - Resolve threat events that identify the player or another threat actor back to that actor's

@@ -332,7 +332,7 @@ AssertColor("nameplate5", 1, 0.62, 0.12, "warning bracket should be orange")
 
 mock.assignedRole = "DAMAGER"
 Dispatch("PLAYER_ROLES_ASSIGNED")
-RunFrames(8, 0.038)
+RunFrames(8, 0.039)
 assert(not addon.playerIsTank, "explicit damage role should select non-tank semantics")
 AssertColor("nameplate4", 1, 0.32, 0.26, "non-tank with aggro should be red")
 AssertColor("nameplate6", 0.35, 1, 0.35, "non-tank below the pull threshold should be green")
@@ -340,6 +340,7 @@ AssertColor("nameplate5", 1, 0.62, 0.12, "warning should override non-tank color
 
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate2")
 Update(0.012)
+DrainScheduler()
 
 local rapidLogIndex = #mock.threatQueryLog + 1
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
@@ -355,7 +356,7 @@ Update(0)
 
 local overlapLogIndex = #mock.threatQueryLog + 1
 Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
-RunFrames(8, 0.20)
+RunFrames(8, 0.10)
 local overlapCounts = CountQueriesByEnemy(overlapLogIndex)
 for index = 1, 39 do
 	assert(overlapCounts["nameplate" .. index] == 50, "event/poll overlap must scan each plate once")
@@ -398,6 +399,12 @@ for index = 1, 6 do
 		"the active urgent batch should scan each queued plate once"
 	)
 end
+RunFrames(8, 0)
+local pendingUrgentLength, pendingPollLength = addon.NameplatesTest.getQueueLengths()
+assert(
+	pendingUrgentLength == 1 and pendingPollLength == 0,
+	"the independent fallback queue should drain without consuming the deferred urgent event"
+)
 local nextBatchLogIndex = #mock.threatQueryLog + 1
 Update(0.049)
 assert(
@@ -511,7 +518,7 @@ assert(recycledPlate.ThreatPlatingOverlay.shown, "recycled units should render o
 local stableFrameCount = #mock.frames
 for _ = 1, 3 do
 	local cycleLogIndex = #mock.threatQueryLog + 1
-	RunFrames(8, 0.20)
+	RunFrames(8, 0.10)
 	local cycleCounts = CountQueriesByEnemy(cycleLogIndex)
 	for index = 1, 39 do
 		assert(cycleCounts["nameplate" .. index] == 50, "repeated cycles must scan each ordinary plate once")

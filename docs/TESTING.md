@@ -101,8 +101,8 @@ Expected:
   enemy is not targeting the player.
 - Both the 100–110% melee bracket and the 100–130% ranged bracket work; class does not determine
   which threshold applies.
-- Moving into melee range updates within roughly 0.25 seconds. If the move crosses the applicable
-  pull threshold and aggro changes, orange clears.
+- Moving into melee range updates within roughly 0.15 seconds under ordinary plate counts. If the
+  move crosses the applicable pull threshold and aggro changes, orange clears.
 - The displayed sign and magnitude continue to compare raw threat. Orange may therefore accompany
   either sign when another queryable contender is also above the current target.
 - Taunts and fixates do not change raw-threat arithmetic; encounter targeting mechanics may delay
@@ -143,13 +143,14 @@ Expected:
 
 Expected:
 
-- Newly visible plates appear and removed plates clear within roughly 0.25 seconds even while
-  threat events are continuous.
+- Newly visible plates appear and removed plates clear within roughly 0.15 seconds under ordinary
+  plate counts even while threat events are continuous. Dense packs remain bounded by the
+  five-plate per-frame scheduler.
 - Recycled plates never retain another unit's badge.
 - Signed values continue to follow the highest observed/inferred raw-threat actor while colors
   independently follow actual aggro safety during taunts and fixates.
 - Ordinary current-target damage enters the urgent queue through either hostile-unit or actor-unit
-  threat events instead of updating only at the 0.20-second fallback cadence.
+  threat events instead of updating only at the 0.10-second fallback cadence.
 - Disabling immediately hides every badge; enabling restores eligible plates without a reload.
 
 ## Five-player dungeon

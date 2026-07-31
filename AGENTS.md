@@ -54,7 +54,7 @@ access in `Nameplates.lua`.
 ## Reliability invariants
 
 1. Use `NAME_PLATE_UNIT_ADDED` and `NAME_PLATE_UNIT_REMOVED` as the primary lifecycle.
-2. Retain the 0.20-second poll as a correctness fallback.
+2. Retain the 0.10-second poll as a correctness fallback.
 3. Refresh quickly after `UNIT_THREAT_LIST_UPDATE` and `UNIT_THREAT_SITUATION_UPDATE`, but cap
    event-driven refresh frequency.
 4. Treat nameplates as pooled/recycled. Store the current unit on the addon overlay and verify it

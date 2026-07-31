@@ -390,7 +390,8 @@ assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 addon.testHarness = true
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.6.1", "runtime version should match the release")
+assert(addon.version == "0.6.2", "runtime version should match the release")
+assert(addon.updateInterval == 0.10, "fallback poll should run every 0.10 seconds")
 
 local function NewPlate(unit)
 	local plate = CreateFrame("Frame")
@@ -462,12 +463,24 @@ threat["player:nameplate1"] = { true, 3, 100, 100, 100000 }
 threat["pet:nameplate1"] = { false, 1, 80, 80, 80000 }
 
 Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate1")
-Update(0.20)
+Update(0.10)
 
 assert(plate.ThreatPlatingOverlay.shown, "leader overlay should be shown")
 assert(plate.ThreatPlatingOverlay.text.text == "+200", "leader overlay should show +200")
 assert(addon.playerIsTank, "Protection talents should select tank colors")
 AssertColor(plate.ThreatPlatingOverlay.text, 0.35, 1, 0.35, "tank leader should be green")
+
+local scansBeforePollBoundary = mock.nameplateScanCount
+Update(0.099)
+assert(
+	mock.nameplateScanCount == scansBeforePollBoundary,
+	"fallback scan should not run before the 0.10-second boundary"
+)
+Update(0.002)
+assert(
+	mock.nameplateScanCount == scansBeforePollBoundary + 1,
+	"fallback scan should run after crossing the 0.10-second boundary"
+)
 
 local initialSetTextCount = plate.ThreatPlatingOverlay.text.setTextCount
 local initialSetTextColorCount = plate.ThreatPlatingOverlay.text.setTextColorCount
@@ -647,7 +660,7 @@ for _ = 1, 4 do
 	Update(0.05)
 end
 assert(
-	mock.nameplateScanCount == scansBeforeContinuousEvents + 1,
+	mock.nameplateScanCount == scansBeforeContinuousEvents + 2,
 	"continuous threat events must not starve the fallback scan"
 )
 
@@ -668,13 +681,13 @@ Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
 Update(0.05)
 assert(not stalePlate.ThreatPlatingOverlay.shown, "a stale pooled plate should hide before the next poll")
 
-Update(0.20)
+Update(0.10)
 assert(replacementPlate.ThreatPlatingOverlay.shown, "the fallback scan should attach to a replacement plate")
 assert(stalePlate.ThreatPlatingOverlay.unit == nil, "a replaced pooled plate should release its unit token")
 
 plates.nameplate1 = nil
 units.nameplate1 = nil
-Update(0.20)
+Update(0.10)
 assert(not replacementPlate.ThreatPlatingOverlay.shown, "the fallback scan should prune a missing plate")
 assert(replacementPlate.ThreatPlatingOverlay.unit == nil, "a pruned plate should release its unit token")
 
@@ -719,7 +732,7 @@ units.nameplate2 = nil
 units.nameplate2 = true
 local playerPlate = NewPlate("nameplate2")
 Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate2")
-Update(0.20)
+Update(0.10)
 assert(playerPlate.ThreatPlatingOverlay == nil, "player-controlled plates should be ignored")
 
 addon.db.offsetX = 99
