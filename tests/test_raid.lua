@@ -242,7 +242,11 @@ mock.threatHandler = function(source, enemy)
 	return { false, 1, 50, 50, rawThreat }
 end
 
-ThreatPlatingDB = {}
+-- Exact scheduler assertions begin with presentation tweening disabled. A dedicated
+-- 40-plate pass below enables the production default and stresses its shared update.
+ThreatPlatingDB = {
+	smoothTransitions = false,
+}
 local addon = {
 	testHarness = true,
 }
@@ -688,6 +692,71 @@ GetShapeshiftForm = standardGetShapeshiftForm
 mock.activeFormSpellID = 5487
 Dispatch("UPDATE_SHAPESHIFT_FORM")
 assert(addon.playerIsTank, "form detection should recover after a malformed form index")
+DrainScheduler()
+
+-- Exercise the default-on presentation path across the full supported visible-plate
+-- budget. Establish one exact baseline first so every plate starts the same-sign tween.
+for index = 1, 40 do
+	local unit = "nameplate" .. index
+	scenarios[unit] = {
+		actors = {
+			["raid-member-2"] = 80000,
+		},
+		player = { true, 3, 100, 100, 100000 },
+	}
+end
+addon.UpdateAllNameplates()
+DrainScheduler()
+for index = 1, 40 do
+	AssertText(
+		"nameplate" .. index,
+		"+200",
+		"the transition stress baseline should settle every plate"
+	)
+end
+
+addon.db.smoothTransitions = true
+addon.ApplyDisplaySettings("behavior")
+for index = 1, 40 do
+	scenarios["nameplate" .. index].player = { true, 3, 100, 100, 350000 }
+end
+addon.UpdateAllNameplates()
+RunFrames(8, 0)
+
+local activeTransitionCount = 0
+for index = 1, 40 do
+	local overlay = mock.plates["nameplate" .. index].ThreatPlatingOverlay
+	if overlay.valueTransitionIndex then
+		activeTransitionCount = activeTransitionCount + 1
+	end
+end
+assert(activeTransitionCount == 40, "all 40 raid plates should share the transition update")
+
+local transitionFrameCount = #mock.frames
+Update(1 / 30)
+for index = 1, 40 do
+	local text = mock.plates["nameplate" .. index].ThreatPlatingOverlay.text.text
+	assert(
+		text ~= "+200" and text ~= "+2.7k",
+		"every raid transition should render an intermediate value"
+	)
+end
+for _ = 1, 5 do
+	Update(1 / 30)
+end
+for index = 1, 40 do
+	local overlay = mock.plates["nameplate" .. index].ThreatPlatingOverlay
+	AssertText(
+		"nameplate" .. index,
+		"+2.7k",
+		"every raid transition should settle on its exact target"
+	)
+	assert(not overlay.valueTransitionIndex, "settled raid transitions must leave the shared list")
+end
+assert(
+	#mock.frames == transitionFrameCount,
+	"40 simultaneous number transitions must not create frames or overlays"
+)
 DrainScheduler()
 
 assert(#mock.frames == stableFrameCount, "repeated raid cycles must not create frames or overlays")

@@ -80,7 +80,7 @@ for key, definition in pairs(defaultsAddon.settingDefinitions) do
 		invalidDatabase[key] = "invalid"
 	end
 end
-assert(definitionCount == 24, "the validation matrix should cover every saved setting")
+assert(definitionCount == 25, "the validation matrix should cover every saved setting")
 
 local invalidAddon = LoadInitWithDatabase(invalidDatabase)
 for key in pairs(defaultsAddon.settingDefinitions) do
@@ -189,6 +189,7 @@ assert(
 	"the runtime should expose a dotted release version"
 )
 assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
+assert(addon.db.smoothTransitions == true, "invalid transition settings should use defaults")
 assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
 assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")
 assert(addon.db.badgeWidth == 36, "finite saved dimensions should be clamped")

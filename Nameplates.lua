@@ -9,6 +9,8 @@ local ApplyBadgeWidthForRevision = View.ApplyBadgeWidthForRevision
 local ApplyOverlayStyle = View.ApplyOverlayStyle
 local CreateOverlay = View.CreateOverlay
 local DisplayValue = View.DisplayValue
+local AdvanceValueTransitions = View.AdvanceValueTransitions
+local FinishValueTransitions = View.FinishValueTransitions
 
 local POLL_INTERVAL = addon.updateInterval
 local EVENT_REFRESH_DELAY = addon.eventRefreshDelay
@@ -241,7 +243,7 @@ local function UpdateNameplate(unit, record)
 
 	if addon.configPreviewActive then
 		local _, isLeader, safetyState = addon:GetConfigPreviewScenario()
-		DisplayValue(record, addon.sampleThreatDelta, isLeader, safetyState)
+		DisplayValue(record, addon.sampleThreatDelta, isLeader, safetyState, false)
 		return
 	end
 
@@ -251,7 +253,8 @@ local function UpdateNameplate(unit, record)
 			addon.sampleThreatDelta,
 			true,
 			addon.testPullThresholdWarning and "warning"
-				or (addon.playerIsTank and "safe" or "danger")
+				or (addon.playerIsTank and "safe" or "danger"),
+			false
 		)
 		return
 	end
@@ -297,7 +300,7 @@ local function UpdateNameplate(unit, record)
 		return
 	end
 
-	DisplayValue(record, delta, isLeader, safetyState)
+	DisplayValue(record, delta, isLeader, safetyState, true)
 end
 
 local function AddThreatSource(unit)
@@ -542,7 +545,10 @@ end
 
 function addon.ApplyDisplaySettings(changeKind)
 	changeKind = changeKind or "all"
-	if changeKind ~= "layout" and changeKind ~= "style" then
+	if changeKind ~= "layout"
+		and changeKind ~= "style"
+		and changeKind ~= "behavior"
+	then
 		changeKind = "all"
 	end
 
@@ -552,13 +558,19 @@ function addon.ApplyDisplaySettings(changeKind)
 	if changeKind == "style" or changeKind == "all" then
 		addon.styleRevision = addon.styleRevision + 1
 	end
+	if not addon.db.smoothTransitions then
+		FinishValueTransitions()
+	end
+	if changeKind == "behavior" then
+		return
+	end
 
 	for _, record in pairs(activeNameplates) do
 		local overlay = record.overlay
 		ApplyOverlayLayout(overlay, record.nameplate)
 		ApplyOverlayStyle(overlay)
 
-		if overlay.displayText then
+		if overlay.renderedText then
 			ApplyBadgeWidthForRevision(overlay)
 			addon:ApplyThreatColor(
 				overlay,
@@ -680,6 +692,7 @@ eventFrame:SetScript("OnUpdate", function(_, elapsed)
 	end
 
 	ProcessQueuedNameplates()
+	AdvanceValueTransitions(elapsed)
 end)
 
 if addon.testHarness then

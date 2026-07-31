@@ -403,7 +403,11 @@ local plates = mock.plates
 local units = mock.units
 local threat = mock.threat
 
-ThreatPlatingDB = {}
+-- Most runtime assertions exercise exact threat snapshots. Transition behavior has a
+-- focused block below; keep it disabled elsewhere so unrelated expectations stay exact.
+ThreatPlatingDB = {
+	smoothTransitions = false,
+}
 local addon = {
 	testHarness = true,
 }
@@ -1106,6 +1110,7 @@ local sections = addon.ConfigTest.getSections()
 assert(#sections == 5, "all progressive-disclosure sections should exist")
 local expectedControlLabels = {
 	"Enable threat counters",
+	"Smooth number transitions",
 	"Anchor preset",
 	"Horizontal offset",
 	"Vertical offset",
@@ -1132,6 +1137,24 @@ assert(
 for _, label in ipairs(expectedControlLabels) do
 	assert(FindControl(label), "the configurator should expose " .. label)
 end
+local smoothTransitionsControl = FindControl("Smooth number transitions")
+assert(
+	smoothTransitionsControl.check:GetChecked() == true,
+	"the smoothing control should reflect the reset default state"
+)
+local styleRevisionBeforeBehaviorToggle = addon.styleRevision
+local layoutRevisionBeforeBehaviorToggle = addon.layoutRevision
+smoothTransitionsControl.check:SetChecked(false)
+smoothTransitionsControl.check.scripts.OnClick(smoothTransitionsControl.check)
+assert(addon.db.smoothTransitions == false, "the smoothing control should disable transitions")
+smoothTransitionsControl.check:SetChecked(true)
+smoothTransitionsControl.check.scripts.OnClick(smoothTransitionsControl.check)
+assert(addon.db.smoothTransitions == true, "the smoothing control should enable transitions")
+assert(
+	addon.styleRevision == styleRevisionBeforeBehaviorToggle
+		and addon.layoutRevision == layoutRevisionBeforeBehaviorToggle,
+	"behavior-only changes should not trigger layout or style revisions"
+)
 local expandedHeight = sections[1].content:GetHeight()
 sections[1].header.scripts.OnClick(sections[1].header)
 assert(sections[1].content.shown == false, "section headers should collapse their content")
@@ -1418,10 +1441,15 @@ assert(
 )
 resetApplyKinds = {}
 addon.db.offsetX = 77
+addon.db.smoothTransitions = false
 addon:ResetAppearanceSettings()
 assert(addon.db.fontSize == 14, "Reset Appearance should restore typography")
 assert(addon.db.palette == "default", "Reset Appearance should restore the default palette")
 assert(addon.db.offsetX == 77, "Reset Appearance should preserve layout")
+assert(
+	addon.db.smoothTransitions == false,
+	"Reset Appearance should preserve general behavior settings"
+)
 assert(
 	#resetApplyKinds == 1 and resetApplyKinds[1] == "style",
 	"Reset Appearance should perform one style application"
@@ -1432,6 +1460,7 @@ addon:ResetAllSettings()
 assert(addon.enabled, "Reset All should restore enabled state")
 assert(addon.db.offsetX == 6, "Reset All should restore layout")
 assert(addon.db.fontSize == 14, "Reset All should restore appearance")
+assert(addon.db.smoothTransitions, "Reset All should restore behavior settings")
 assert(
 	#resetApplyKinds == 1 and resetApplyKinds[1] == "all",
 	"Reset All should perform one all-settings application"
@@ -1440,10 +1469,12 @@ assert(
 resetApplyKinds = {}
 addon.db.offsetX = 133
 addon.db.safeColor[1] = 0.01
+addon.db.smoothTransitions = false
 addon:SetEnabled(false)
 addon.ConfigTest.restoreSession()
 assert(addon.db.offsetX == 6, "Revert should restore the editor-open layout snapshot")
 assert(addon.db.safeColor[1] == 0.35, "Revert should restore an independent color snapshot")
+assert(addon.db.smoothTransitions, "Revert should restore the editor-open behavior snapshot")
 assert(addon.enabled, "Revert should restore the editor-open enabled state")
 assert(window:GetWidth() == 900, "Revert should not resize the configurator")
 assert(window:GetHeight() == 700, "Revert should not move configurator geometry")
@@ -1981,5 +2012,80 @@ end
 addon.CloseConfig()
 addon:ResetAllSettings()
 AssertPersistable("after fuzz reset")
+
+-- Keep transition timing isolated at the end of the fixture so it cannot change the
+-- scheduler phase assumed by threat-lifecycle assertions above.
+threat["player:nameplate1"] = { true, 3, 100, 100, 100000 }
+threat["pet:nameplate1"] = { false, 1, 80, 80, 80000 }
+addon:ScanVisibleNameplates()
+addon.UpdateAllNameplates()
+Update(0.10)
+assert(
+	disabledPlate.ThreatPlatingOverlay.text.text == "+200",
+	"the transition fixture should begin from a settled live value"
+)
+
+threat["player:nameplate1"] = { false, 1, 336.5, 437.5, 350000 }
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
+local firstTransitionText = disabledPlate.ThreatPlatingOverlay.text.text
+assert(
+	firstTransitionText ~= "+200" and firstTransitionText ~= "+2.7k",
+	"same-sign live values should begin between the old and new counters"
+)
+AssertColor(
+	disabledPlate.ThreatPlatingOverlay.text,
+	1,
+	0.32,
+	0.26,
+	"safety color changes should apply immediately while the number is moving"
+)
+local transitionQueryCount = mock.threatQueryCount
+addon.NameplateView.AdvanceValueTransitions(0.04)
+assert(
+	mock.threatQueryCount == transitionQueryCount,
+	"advancing a number transition must not query threat"
+)
+assert(
+	disabledPlate.ThreatPlatingOverlay.text.text ~= firstTransitionText,
+	"the shared transition clock should advance an active number"
+)
+
+disabledPlate:Hide()
+addon.NameplateView.AdvanceValueTransitions(0.09)
+assert(
+	not disabledPlate.ThreatPlatingOverlay.shown,
+	"hiding a plate should cancel its active number transition"
+)
+disabledPlate:Show()
+addon.UpdateAllNameplates()
+Update(0)
+assert(
+	disabledPlate.ThreatPlatingOverlay.text.text == "+2.7k",
+	"a newly shown badge should snap to the exact formatted target"
+)
+
+threat["player:nameplate1"] = { false, 1, 62.5, 62.5, 50000 }
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
+assert(
+	disabledPlate.ThreatPlatingOverlay.text.text == "-300",
+	"leader-sign changes should render immediately instead of tweening through zero"
+)
+
+threat["player:nameplate1"] = { false, 1, 12.5, 12.5, 10000 }
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
+assert(
+	disabledPlate.ThreatPlatingOverlay.text.text ~= "-700",
+	"same-sign deficits should also use the number transition"
+)
+addon.db.smoothTransitions = false
+addon.ApplyDisplaySettings("behavior")
+assert(
+	disabledPlate.ThreatPlatingOverlay.text.text == "-700",
+	"turning smoothing off should settle an active transition immediately"
+)
+AssertPersistable("after transition tests")
 
 print("Nameplate runtime: smoke test passed")

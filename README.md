@@ -23,11 +23,13 @@ when you move between melee and ranged distance. The sign and number still descr
 lead or deficit.
 
 The counter sits immediately to the right of the health bar in a high-contrast badge. Player and
-player-controlled nameplates are excluded.
+player-controlled nameplates are excluded. Live same-sign number changes use a short ease-out
+transition by default; the configurator can disable it. Changes between `+` and `-`, threat colors,
+newly shown badges, and diagnostic/configurator samples remain immediate.
 
 ## Current status
 
-This repository contains a working `0.7.2` addon targeting TBC Anniversary client
+This repository contains a working `0.8.0` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
@@ -116,6 +118,7 @@ The live editor provides:
 - Nine health-bar anchor presets, direct badge dragging, and exact X/Y entry.
 - Independent minimum width, height, automatic width, horizontal padding, and 8–32 point text.
 - Nameplate, UI, and combat-number Blizzard font presets plus optional text shadow.
+- Optional smooth live-number transitions, enabled by default.
 - Background RGB/opacity and semantic, custom, or disabled borders.
 - Default, Blue/Vermilion/Yellow, Cyan/Magenta/Yellow, and custom threat palettes.
 - Reset Layout, Reset Appearance, Reset All, Revert, and Done actions.

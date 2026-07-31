@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0 - 2026-07-31
+
+- Add an enabled-by-default Smooth number transitions setting that eases same-sign live counter
+  changes over 180 milliseconds while keeping the exact threat target unchanged.
+- Snap sign changes, newly shown or recycled plates, configurator/test samples, and safety colors
+  immediately so animation never obscures a current semantic state.
+- Advance all active transitions from one reusable 30 Hz list on the existing scheduler frame,
+  without additional frames, threat queries, or per-refresh persistent tables.
+- Keep the General transition toggle independent from Reset Appearance while including it in
+  Revert and Reset All, and avoid layout or style work for behavior-only changes.
+- Add database, configurator, lifecycle, query-isolation, sign-change, toggle, and simultaneous
+  40-nameplate regression coverage for the new behavior.
+
 ## 0.7.2 - 2026-07-31
 
 - Treat the verified TBC Anniversary 2.5.6 tanking `rawPercentage=255` value as an unusable

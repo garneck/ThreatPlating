@@ -39,8 +39,8 @@ the installer with the pushed revision so the game never receives uncommitted fi
 9. Exercise every slider by dragging and by keyboard entry, including invalid and boundary values.
    Type a partial value into an edit box, wait more than a second without pressing Enter, then
    finish typing. Repeat but click away instead of pressing Enter.
-10. Try automatic width, padding, all font presets, text shadow, background RGB/opacity, all border
-   modes, all palettes, and custom semantic colors.
+10. Try automatic width, padding, all font presets, text shadow, smooth number transitions,
+    background RGB/opacity, all border modes, all palettes, and custom semantic colors.
 11. Open and cancel the color picker, then open another addon's picker before closing this editor.
     Also open the picker and, while it is still open, press Reset Appearance, then cancel it.
 12. Use Reset Layout, Reset Appearance, Reset All, and Revert. Move and resize the editor before
@@ -76,10 +76,13 @@ Expected:
   following the baseline when it is reopened.
 - Reset actions apply immediately. Revert restores the session-open display and enabled state but
   preserves the editor's current size and position.
+- Reset Appearance preserves the General smooth-transition choice; Revert restores its
+  session-open value.
 - Closing the configurator restores real threat values or hides plates without threat.
 - Badge layout, appearance, collapsed sections, and configurator geometry survive `/reload`.
 - Reset All restores a 44 × 18 badge, 14-point Nameplate font, seven-pixel horizontal padding,
-  dark 90%-opaque background, semantic border, default colors, and a six-pixel right-side gap.
+  enabled smooth transitions, dark 90%-opaque background, semantic border, default colors, and a
+  six-pixel right-side gap.
 - Configuring never makes Blizzard nameplates draggable or mouse-interactive.
 - The title X, footer Done button, Escape, `/threatplating close`, and slash toggle all close the
   window, even after dragging the preview badge against every canvas edge.
@@ -161,8 +164,11 @@ Expected:
 3. During a taunt swap or fixate, compare the badge against the actors' raw threat values rather
    than current aggro ownership.
 4. Disable the addon for at least ten seconds during combat, then enable it again.
-5. Repeatedly damage the current target and watch for smooth counter changes between fallback
-   polls, including when the client reports the threat event against `player` rather than the mob.
+5. With Smooth number transitions enabled, repeatedly damage the current target and watch
+   same-sign counter changes between fallback polls, including when the client reports the threat
+   event against `player` rather than the mob.
+6. Cross from a deficit to a lead, then disable Smooth number transitions while another same-sign
+   counter change is still moving.
 
 Expected:
 
@@ -174,6 +180,8 @@ Expected:
   independently follow actual aggro safety during taunts and fixates.
 - Ordinary current-target damage enters the urgent queue through either hostile-unit or actor-unit
   threat events instead of updating only at the 0.10-second fallback cadence.
+- Same-sign live changes ease briefly without delaying the target calculation. Crossing between
+  `+` and `-` snaps immediately, and disabling smoothing settles an in-flight value immediately.
 - Disabling immediately hides every badge; enabling restores eligible plates without a reload.
 
 ## Five-player dungeon

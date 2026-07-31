@@ -413,6 +413,13 @@ local function CreateGeneralSection(parent)
 			addon:SetEnabled(checked)
 		end
 	)
+	CreateSettingCheckRow(
+		section,
+		"smoothTransitions",
+		"Smooth number transitions",
+		"Animate changes between live values. Sign changes still update immediately.",
+		"behavior"
+	)
 	CreateInfoRow(section)
 end
 

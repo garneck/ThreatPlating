@@ -1,7 +1,7 @@
 local addonName, addon = ...
 
 addon.name = addonName
-addon.version = "0.7.2"
+addon.version = "0.8.0"
 addon.updateInterval = 0.10
 addon.eventRefreshDelay = 0.05
 addon.testModeUntil = 0
@@ -98,6 +98,12 @@ local SETTING_DEFINITIONS = {
 		key = "enabled",
 		default = true,
 		valueType = "boolean",
+	},
+	{
+		key = "smoothTransitions",
+		default = true,
+		valueType = "boolean",
+		group = "behavior",
 	},
 	{
 		key = "anchorPoint",
@@ -299,6 +305,7 @@ addon.defaults = {
 addon.settingDefinitions = {}
 addon.layoutSettingKeys = {}
 addon.appearanceSettingKeys = {}
+addon.behaviorSettingKeys = {}
 
 for _, definition in ipairs(SETTING_DEFINITIONS) do
 	addon.settingDefinitions[definition.key] = definition
@@ -307,6 +314,8 @@ for _, definition in ipairs(SETTING_DEFINITIONS) do
 		addon.layoutSettingKeys[#addon.layoutSettingKeys + 1] = definition.key
 	elseif definition.group == "appearance" then
 		addon.appearanceSettingKeys[#addon.appearanceSettingKeys + 1] = definition.key
+	elseif definition.group == "behavior" then
+		addon.behaviorSettingKeys[#addon.behaviorSettingKeys + 1] = definition.key
 	end
 end
 
@@ -497,6 +506,7 @@ function addon:CaptureDisplaySettings()
 	}
 	CopyKeys(self.db, snapshot, self.layoutSettingKeys)
 	CopyKeys(self.db, snapshot, self.appearanceSettingKeys)
+	CopyKeys(self.db, snapshot, self.behaviorSettingKeys)
 	return snapshot
 end
 
@@ -552,6 +562,7 @@ function addon:RestoreDisplaySettings(snapshot)
 	EndConfigColorPicker(self)
 	CopyKeys(snapshot, self.db, self.layoutSettingKeys)
 	CopyKeys(snapshot, self.db, self.appearanceSettingKeys)
+	CopyKeys(snapshot, self.db, self.behaviorSettingKeys)
 	local enabledChanged = self.enabled ~= (snapshot.enabled and true or false)
 	SetEnabledValue(self, snapshot.enabled)
 	if self.ApplyDisplaySettings then
@@ -588,6 +599,7 @@ function addon:ResetAllSettings()
 	EndConfigColorPicker(self)
 	CopyKeys(self.defaults, self.db, self.layoutSettingKeys)
 	CopyKeys(self.defaults, self.db, self.appearanceSettingKeys)
+	CopyKeys(self.defaults, self.db, self.behaviorSettingKeys)
 	local enabledChanged = self.enabled ~= self.defaults.enabled
 	SetEnabledValue(self, self.defaults.enabled)
 	if self.ApplyDisplaySettings then

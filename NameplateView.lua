@@ -5,6 +5,11 @@ local Threat = addon.Threat
 local BACKDROP = addon.BACKDROP
 local IsFiniteNumber = addon.IsFiniteNumber
 local referenceVisual = {}
+local activeValueTransitions = {}
+local transitionUpdateElapsed = 0
+
+local VALUE_TRANSITION_DURATION = 0.18
+local VALUE_TRANSITION_INTERVAL = 1 / 30
 
 local function GetUnitFrame(nameplate)
 	return nameplate and (nameplate.UnitFrame or nameplate.unitFrame)
@@ -120,6 +125,30 @@ local function ApplyOverlayStyle(overlay)
 	addon:ApplyBadgeStyle(overlay, overlay.text)
 end
 
+local function StopValueTransition(overlay)
+	local index = overlay.valueTransitionIndex
+	if index then
+		local lastIndex = #activeValueTransitions
+		local lastOverlay = activeValueTransitions[lastIndex]
+		activeValueTransitions[lastIndex] = nil
+		if index ~= lastIndex then
+			activeValueTransitions[index] = lastOverlay
+			lastOverlay.valueTransitionIndex = index
+		end
+	end
+
+	overlay.valueTransitionIndex = nil
+	overlay.transitionFromValue = nil
+	overlay.transitionTargetValue = nil
+	overlay.transitionIsLeader = nil
+	overlay.transitionElapsed = nil
+end
+
+local function OnOverlayHide(overlay)
+	StopValueTransition(overlay)
+	overlay.renderedFromLiveData = false
+end
+
 local function OnNameplateHide(nameplate)
 	local overlay = nameplate.ThreatPlatingOverlay
 	if overlay then
@@ -133,6 +162,7 @@ local function CreateOverlay(nameplate)
 	overlay:SetBackdrop(BACKDROP)
 	overlay:EnableMouse(false)
 	overlay:Hide()
+	overlay:SetScript("OnHide", OnOverlayHide)
 
 	local text = overlay:CreateFontString(nil, "OVERLAY")
 	text:SetPoint("CENTER", overlay, "CENTER", 0, 0)
@@ -155,18 +185,118 @@ local function CreateOverlay(nameplate)
 	return overlay
 end
 
-local function DisplayValue(record, value, isLeader, safetyState)
-	local overlay = record.overlay
+local function SetRenderedValue(overlay, value, isLeader, text)
+	text = text or Threat.FormatDelta(value, isLeader)
+	if not text then
+		return false
+	end
+
+	overlay.renderedValue = value
+	overlay.renderedIsLeader = isLeader
+	if overlay.renderedText ~= text then
+		overlay.renderedText = text
+		overlay.text:SetText(text)
+		-- New text can change the measured string width. Intermediate values follow
+		-- the same automatic-width rules as settled values.
+		ApplyBadgeWidthForRevision(overlay)
+	end
+	return true
+end
+
+local function StartValueTransition(overlay, targetValue, isLeader)
+	if not overlay.valueTransitionIndex then
+		local index = #activeValueTransitions + 1
+		activeValueTransitions[index] = overlay
+		overlay.valueTransitionIndex = index
+	end
+
+	overlay.transitionFromValue = overlay.renderedValue
+	overlay.transitionTargetValue = targetValue
+	overlay.transitionIsLeader = isLeader
+	overlay.transitionElapsed = 0
+end
+
+local function FinishValueTransition(overlay)
+	local targetValue = overlay.transitionTargetValue
+	local isLeader = overlay.transitionIsLeader
 	local text
-	if overlay.cachedDisplayValue == value
-		and overlay.cachedDisplayIsLeader == isLeader
+	if overlay.targetValue == targetValue
+		and overlay.targetIsLeader == isLeader
 	then
-		text = overlay.cachedDisplayText
-	else
+		text = overlay.targetText
+	end
+
+	StopValueTransition(overlay)
+	if not SetRenderedValue(overlay, targetValue, isLeader, text) then
+		overlay:Hide()
+	end
+end
+
+local function FinishValueTransitions()
+	while #activeValueTransitions > 0 do
+		FinishValueTransition(activeValueTransitions[#activeValueTransitions])
+	end
+	transitionUpdateElapsed = 0
+end
+
+local function AdvanceValueTransitions(elapsed)
+	if #activeValueTransitions == 0 then
+		transitionUpdateElapsed = 0
+		return
+	end
+	if not addon.db.smoothTransitions then
+		FinishValueTransitions()
+		return
+	end
+	if not IsFiniteNumber(elapsed) or elapsed <= 0 then
+		return
+	end
+
+	transitionUpdateElapsed = transitionUpdateElapsed + elapsed
+	if transitionUpdateElapsed < VALUE_TRANSITION_INTERVAL then
+		return
+	end
+
+	local stepElapsed = transitionUpdateElapsed
+	transitionUpdateElapsed = 0
+	local index = 1
+	while index <= #activeValueTransitions do
+		local overlay = activeValueTransitions[index]
+		if not overlay:IsShown() or overlay.unit == nil then
+			StopValueTransition(overlay)
+		else
+			overlay.transitionElapsed = overlay.transitionElapsed + stepElapsed
+			local progress = math.min(
+				1,
+				overlay.transitionElapsed / VALUE_TRANSITION_DURATION
+			)
+			if progress >= 1 then
+				FinishValueTransition(overlay)
+			else
+				local remaining = 1 - progress
+				local easedProgress = 1 - remaining * remaining * remaining
+				local value = overlay.transitionFromValue
+					+ (overlay.transitionTargetValue - overlay.transitionFromValue)
+						* easedProgress
+				SetRenderedValue(overlay, value, overlay.transitionIsLeader)
+				index = index + 1
+			end
+		end
+	end
+end
+
+local function DisplayValue(record, value, isLeader, safetyState, fromLiveData)
+	local overlay = record.overlay
+	local targetChanged = overlay.targetValue ~= value
+		or overlay.targetIsLeader ~= isLeader
+	local text
+	if targetChanged then
 		text = Threat.FormatDelta(value, isLeader)
-		overlay.cachedDisplayValue = value
-		overlay.cachedDisplayIsLeader = isLeader
-		overlay.cachedDisplayText = text
+		overlay.targetValue = value
+		overlay.targetIsLeader = isLeader
+		overlay.targetText = text
+	else
+		text = overlay.targetText
 	end
 
 	if not text then
@@ -174,21 +304,41 @@ local function DisplayValue(record, value, isLeader, safetyState)
 		return
 	end
 
-	local layoutChanged = overlay.displayLayoutRevision ~= addon.layoutRevision
 	local styleChanged = overlay.displayStyleRevision ~= addon.styleRevision
-	local textChanged = false
 	ApplyOverlayLayout(overlay, record.nameplate)
 	ApplyOverlayStyle(overlay)
 
-	if overlay.displayText ~= text then
-		overlay.displayText = text
-		overlay.text:SetText(text)
-		textChanged = true
-	end
+	local isLiveValue = fromLiveData == true
+	local retainTransition = not targetChanged
+		and overlay:IsShown()
+		and isLiveValue
+		and overlay.renderedFromLiveData
+		and addon.db.smoothTransitions
+	if not retainTransition then
+		local canAnimate = isLiveValue
+			and addon.db.smoothTransitions
+			and overlay:IsShown()
+			and overlay.renderedFromLiveData
+			and IsFiniteNumber(overlay.renderedValue)
+			and overlay.renderedIsLeader == isLeader
+			and overlay.renderedValue ~= value
+			and overlay.renderedText ~= text
 
-	-- New text can change the measured string width, so it re-runs the width pass
-	-- without pretending the font or colors changed.
-	if layoutChanged or styleChanged or textChanged then
+		if canAnimate then
+			StartValueTransition(overlay, value, isLeader)
+		else
+			StopValueTransition(overlay)
+			if not SetRenderedValue(overlay, value, isLeader, text) then
+				overlay:Hide()
+				return
+			end
+		end
+	end
+	overlay.renderedFromLiveData = isLiveValue
+
+	if overlay.displayLayoutRevision ~= addon.layoutRevision
+		or overlay.displayStyleRevision ~= addon.styleRevision
+	then
 		ApplyBadgeWidthForRevision(overlay)
 	end
 
@@ -375,6 +525,8 @@ View.ApplyBadgeWidthForRevision = ApplyBadgeWidthForRevision
 View.ApplyOverlayStyle = ApplyOverlayStyle
 View.CreateOverlay = CreateOverlay
 View.DisplayValue = DisplayValue
+View.AdvanceValueTransitions = AdvanceValueTransitions
+View.FinishValueTransitions = FinishValueTransitions
 View.ReadReferenceVisual = PopulateReferenceVisual
 
 addon.NameplateView = View
