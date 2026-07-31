@@ -390,7 +390,7 @@ assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 addon.testHarness = true
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.6.0", "runtime version should match the release")
+assert(addon.version == "0.6.1", "runtime version should match the release")
 
 local function NewPlate(unit)
 	local plate = CreateFrame("Frame")

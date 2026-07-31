@@ -27,13 +27,15 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.6.0` addon targeting TBC Anniversary client
+This repository contains a working `0.6.1` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
 
 - Nameplate-specific threat events enter a deduplicated urgent queue; urgent batches begin no more
   than 20 times per second and run ahead of ordinary queued work.
+- Actor-token threat events resolve the actor's current hostile target, so ordinary damage updates
+  do not wait for the full fallback poll.
 - An independent 0.20-second poll reconciles missed events and recycled nameplates into a reusable
   poll queue even while threat events are firing continuously.
 - At most five complete plates are queried per frame. In a full 25-player raid with 25 pets this is

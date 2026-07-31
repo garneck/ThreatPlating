@@ -138,6 +138,8 @@ Expected:
 3. During a taunt swap or fixate, compare the badge against the actors' raw threat values rather
    than current aggro ownership.
 4. Disable the addon for at least ten seconds during combat, then enable it again.
+5. Repeatedly damage the current target and watch for smooth counter changes between fallback
+   polls, including when the client reports the threat event against `player` rather than the mob.
 
 Expected:
 
@@ -146,6 +148,8 @@ Expected:
 - Recycled plates never retain another unit's badge.
 - Signed values continue to follow the highest observed/inferred raw-threat actor while colors
   independently follow actual aggro safety during taunts and fixates.
+- Ordinary current-target damage enters the urgent queue through either hostile-unit or actor-unit
+  threat events instead of updating only at the 0.20-second fallback cadence.
 - Disabling immediately hides every badge; enabling restores eligible plates without a reload.
 
 ## Five-player dungeon

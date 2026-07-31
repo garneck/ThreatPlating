@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 - 2026-07-31
+
+- Resolve threat events that identify the player or another threat actor back to that actor's
+  current hostile target, instead of dropping them and waiting for the 0.20-second fallback poll.
+- Keep direct hostile-unit events targeted, deduplicate actor/hostile aliases through the urgent
+  queue, and retain the five-plate per-frame query budget.
+
 ## 0.6.0 - 2026-07-31
 
 - Fix raid deficits by scanning every existing group member, group pet, player pet, and

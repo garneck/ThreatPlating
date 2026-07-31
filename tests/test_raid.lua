@@ -367,6 +367,23 @@ assert(
 )
 DrainScheduler()
 
+mock.targetPlateUnit = "nameplate1"
+local actorEventLogIndex = #mock.threatQueryLog + 1
+Dispatch("UNIT_THREAT_SITUATION_UPDATE", "player")
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Update(0.05)
+local actorEventCounts = CountQueriesByEnemy(actorEventLogIndex)
+assert(
+	actorEventCounts.nameplate1 == 50,
+	"a player threat event should urgently resolve the player's hostile target"
+)
+assert(
+	#mock.threatQueryLog == actorEventLogIndex + 49,
+	"an actor-token event should refresh only its resolved target"
+)
+Update(0)
+mock.targetPlateUnit = nil
+
 local activeBatchLogIndex = #mock.threatQueryLog + 1
 for index = 1, 6 do
 	Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate" .. index)

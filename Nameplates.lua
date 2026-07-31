@@ -1007,7 +1007,7 @@ end
 
 local function RequestNameplateRefresh(unit)
 	if not addon.enabled then
-		return
+		return false
 	end
 
 	local record = activeNameplates[unit]
@@ -1022,10 +1022,26 @@ local function RequestNameplateRefresh(unit)
 	end
 
 	if not record or record.overlay.unit == nil then
-		return
+		return false
 	end
 
 	QueueRecord(record, "urgent")
+	return true
+end
+
+local function RequestThreatEventRefresh(unit)
+	if RequestNameplateRefresh(unit) or not unit then
+		return
+	end
+
+	-- Threat events can identify the actor whose situation changed instead of
+	-- the hostile unit. Resolve that actor's target so ordinary damage does not
+	-- wait for the full fallback poll.
+	if UnitIsUnit(unit, "player") then
+		RequestNameplateRefresh("target")
+	else
+		RequestNameplateRefresh(unit .. "target")
+	end
 end
 
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
@@ -1058,7 +1074,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit)
 	then
 		addon:RefreshPlayerRole()
 	else
-		RequestNameplateRefresh(unit)
+		RequestThreatEventRefresh(unit)
 	end
 end)
 
