@@ -51,6 +51,7 @@ if ($interfaceDirectory.Name -ne "Interface" -or $clientDirectory.Name -ne "_ann
 $destination = Join-Path $addOnsDirectory.FullName "ThreatPlating"
 $staging = Join-Path $addOnsDirectory.FullName (".ThreatPlating.deploy." + [Guid]::NewGuid().ToString("N"))
 $archive = $null
+$backup = $null
 
 New-Item -ItemType Directory -Path $staging | Out-Null
 
@@ -66,13 +67,26 @@ try {
 		}
 	}
 	else {
+		$resolvedRevision = & git -C $projectRoot rev-parse --verify --end-of-options "${Revision}^{commit}"
+		if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resolvedRevision)) {
+			throw "Could not resolve revision $Revision to a commit."
+		}
+		$resolvedRevision = $resolvedRevision.Trim()
+
 		$archive = Join-Path ([System.IO.Path]::GetTempPath()) ("ThreatPlating." + [Guid]::NewGuid().ToString("N") + ".zip")
-		& git -C $projectRoot archive --format=zip "--output=$archive" $Revision -- @runtimeFiles
+		& git -C $projectRoot archive --format=zip "--output=$archive" $resolvedRevision -- @runtimeFiles
 		if ($LASTEXITCODE -ne 0) {
 			throw "Could not export revision $Revision."
 		}
 
 		Expand-Archive -LiteralPath $archive -DestinationPath $staging
+	}
+
+	foreach ($runtimeFile in $runtimeFiles) {
+		$stagedFile = Join-Path $staging $runtimeFile
+		if (-not (Test-Path -LiteralPath $stagedFile -PathType Leaf)) {
+			throw "Staged addon is missing $runtimeFile."
+		}
 	}
 
 	if (Test-Path -LiteralPath $destination) {
@@ -87,16 +101,50 @@ try {
 			throw "Refusing unexpected addon destination: $destination"
 		}
 
-		Remove-Item -LiteralPath $existingDestination.FullName -Recurse -Force
+		$backup = Join-Path $addOnsDirectory.FullName (".ThreatPlating.backup." + [Guid]::NewGuid().ToString("N"))
+		Move-Item -LiteralPath $existingDestination.FullName -Destination $backup
 	}
 
-	Move-Item -LiteralPath $staging -Destination $destination
+	try {
+		Move-Item -LiteralPath $staging -Destination $destination
 
-	foreach ($runtimeFile in $runtimeFiles) {
-		$installedFile = Join-Path $destination $runtimeFile
-		if (-not (Test-Path -LiteralPath $installedFile -PathType Leaf)) {
-			throw "Installed addon is missing $runtimeFile."
+		foreach ($runtimeFile in $runtimeFiles) {
+			$installedFile = Join-Path $destination $runtimeFile
+			if (-not (Test-Path -LiteralPath $installedFile -PathType Leaf)) {
+				throw "Installed addon is missing $runtimeFile."
+			}
 		}
+	}
+	catch {
+		if (Test-Path -LiteralPath $destination) {
+			$failedDestination = Get-Item -LiteralPath $destination -Force
+			if (
+				-not $failedDestination.PSIsContainer -or
+				$failedDestination.Parent.FullName -ne $addOnsDirectory.FullName -or
+				($failedDestination.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+			) {
+				throw "Installation failed and the partial destination could not be removed safely: $destination"
+			}
+			Remove-Item -LiteralPath $failedDestination.FullName -Recurse -Force
+		}
+
+		if ($backup -and (Test-Path -LiteralPath $backup -PathType Container)) {
+			Move-Item -LiteralPath $backup -Destination $destination
+			$backup = $null
+		}
+		throw
+	}
+
+	if ($backup -and (Test-Path -LiteralPath $backup -PathType Container)) {
+		$backupDirectory = Get-Item -LiteralPath $backup -Force
+		if (
+			$backupDirectory.Parent.FullName -ne $addOnsDirectory.FullName -or
+			($backupDirectory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+		) {
+			throw "Refusing to remove unexpected deployment backup: $backup"
+		}
+		Remove-Item -LiteralPath $backupDirectory.FullName -Recurse -Force
+		$backup = $null
 	}
 }
 finally {

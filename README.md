@@ -27,7 +27,7 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.6.2` addon targeting TBC Anniversary client
+This repository contains a working `0.6.3` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
@@ -46,6 +46,8 @@ a non-duplicate enemy target before selecting the highest observable contender. 
 percentage is retained only as a reference for a higher actor that has no queryable unit token.
 Aggro ownership does not override the signed raw-threat comparison during taunts or fixates.
 Contender scans retain only the highest raw threat and allocate no per-plate list.
+Raw-threat ordering is exact before formatting, so even a sub-unit lead keeps the correct sign
+while the displayed magnitude remains compact.
 
 ## Install for development
 
@@ -120,7 +122,8 @@ Run all local checks from PowerShell:
 
 The checks require Lua 5.1, `luac`, and `luacheck`. They cover pure threat math, database
 migration/persistence, a mocked nameplate/configurator lifecycle smoke test, and a deterministic
-25-player, 25-pet, 40-nameplate raid scheduler suite.
+25-player, 25-pet, 40-nameplate raid scheduler suite. They lint every runtime and test Lua file and
+keep the release, client build, interface, and pinned UI-source metadata synchronized.
 
 See [AGENTS.md](AGENTS.md) for architecture and contribution invariants, and
 [docs/TESTING.md](docs/TESTING.md) for the in-game test matrix.

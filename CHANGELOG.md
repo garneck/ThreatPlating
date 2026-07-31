@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.3 - 2026-07-31
+
+- Preserve exact raw-threat ordering below one displayed threat unit, so a real contender lead can
+  no longer be hidden by the former comparison tolerance while compact formatting remains unchanged.
+- Fail closed when legacy talent or shapeshift APIs return malformed numeric values, and extend the
+  raid suite across early add events, queued recycling, sustained event pressure, party/pet source
+  topology, restricted recovery, and scheduler-state bounds.
+- Normalize saved configurator window offsets and expand automated coverage across all saved
+  settings, display controls, preview fallbacks, session restores, and independent close paths.
+- Lint every Lua test, enforce synchronized client/source metadata, validate clean `main` before
+  publishing, and make local installation stage-verified and rollback-capable.
+
 ## 0.6.2 - 2026-07-31
 
 - Reduce the independent nameplate reconciliation fallback from 0.20 to 0.10 seconds so missed

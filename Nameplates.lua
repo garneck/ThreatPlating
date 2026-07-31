@@ -106,7 +106,15 @@ local function GetDominantTalentTree()
 		if not ok then
 			return nil
 		end
-		talentTabCount = count or talentTabCount
+		if count ~= nil then
+			if not IsFiniteNumber(count)
+				or count < 1
+				or count ~= math.floor(count)
+			then
+				return nil
+			end
+			talentTabCount = count
+		end
 	end
 
 	local dominantTree
@@ -147,7 +155,10 @@ local function GetActiveFormSpellID()
 	if not ok then
 		return nil
 	end
-	if not formIndex or formIndex <= 0 then
+	if not IsFiniteNumber(formIndex)
+		or formIndex <= 0
+		or formIndex ~= math.floor(formIndex)
+	then
 		return nil
 	end
 

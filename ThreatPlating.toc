@@ -2,7 +2,7 @@
 ## Title: Threat Plating
 ## Notes: Shows your threat lead or deficit on enemy NPC nameplates.
 ## Author: Threat Plating contributors
-## Version: 0.6.2
+## Version: 0.6.3
 ## X-Category: Combat
 ## X-Game-Version: TBC Anniversary
 ## SavedVariables: ThreatPlatingDB

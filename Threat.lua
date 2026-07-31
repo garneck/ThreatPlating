@@ -4,7 +4,6 @@ local Threat = {}
 addon.Threat = Threat
 
 local RAW_THREAT_SCALE = 0.01
-local THREAT_EPSILON = 0.005
 local BEAR_FORM_SPELL_ID = 5487
 local DIRE_BEAR_FORM_SPELL_ID = 9634
 local DEFENSIVE_STANCE_SPELL_ID = 71
@@ -160,7 +159,10 @@ function Threat.CalculateDelta(playerRawThreat, rawPercentage, highestContenderR
 			return nil, false
 		end
 
-		if math.abs(inferredReferenceThreat - playerThreat) > THREAT_EPSILON then
+		-- At exactly 100%, the percentage does not establish a distinct
+		-- contender; exact queryable ties were collected separately. Every
+		-- other percentage must retain exact inferred raw-threat ordering.
+		if rawPercentage ~= 100 then
 			contenderThreat = math.max(contenderThreat, inferredReferenceThreat)
 		end
 	end
@@ -170,8 +172,8 @@ function Threat.CalculateDelta(playerRawThreat, rawPercentage, highestContenderR
 		return nil, false
 	end
 
-	if playerThreat + THREAT_EPSILON >= leader then
-		return math.max(0, playerThreat - contenderThreat), true
+	if playerThreat >= leader then
+		return playerThreat - contenderThreat, true
 	end
 
 	return playerThreat - leader, false

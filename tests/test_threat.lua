@@ -63,6 +63,74 @@ do
 	AssertEqual(isLeader, false, "third-actor deficit state")
 end
 
+do
+	local delta, isLeader = Threat.CalculateDelta(50000, 50, 80000)
+	AssertNear(delta, -500, "inferred reference beats lower observable actor")
+	AssertEqual(isLeader, false, "inferred-reference deficit state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(120000, 120, 110000)
+	AssertNear(delta, 100, "observable runner-up beats lower inferred reference")
+	AssertEqual(isLeader, true, "observable runner-up leader state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(100000, nil, 100000)
+	AssertNear(delta, 0, "observable raw-threat tie")
+	AssertEqual(isLeader, true, "raw-threat tie counts as highest")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(101, nil, 100)
+	AssertNear(delta, 0.01, "raw threat is scaled by one hundred")
+	AssertEqual(isLeader, true, "single raw-unit lead state")
+end
+
+do
+	local rawLeads = { 0.4, 0.5, 0.6 }
+	for _, rawLead in ipairs(rawLeads) do
+		local label = string.format("%.3f displayed observable lead", rawLead * 0.01)
+		local delta, isLeader = Threat.CalculateDelta(100000, nil, 100000 + rawLead)
+		AssertNear(delta, rawLead * -0.01, label .. " delta")
+		AssertEqual(isLeader, false, label .. " state")
+	end
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(100000.4, nil, 100000)
+	AssertNear(delta, 0.004, "sub-cent observable player lead delta")
+	AssertEqual(isLeader, true, "sub-cent observable player lead state")
+end
+
+do
+	local playerThreat = 1000
+	local inferredLeads = { 0.004, 0.005, 0.006 }
+	for _, inferredLead in ipairs(inferredLeads) do
+		local rawPercentage = playerThreat * 100 / (playerThreat + inferredLead)
+		local label = string.format("%.3f displayed inferred lead", inferredLead)
+		local delta, isLeader = Threat.CalculateDelta(100000, rawPercentage, nil)
+		AssertNear(delta, -inferredLead, label .. " delta")
+		AssertEqual(isLeader, false, label .. " state")
+	end
+end
+
+do
+	local playerThreat = 1000
+	local inferredRunnerUp = playerThreat - 0.004
+	local rawPercentage = playerThreat * 100 / inferredRunnerUp
+	local delta, isLeader = Threat.CalculateDelta(100000, rawPercentage, nil)
+	AssertNear(delta, 0.004, "sub-cent inferred runner-up delta")
+	AssertEqual(isLeader, true, "sub-cent inferred runner-up state")
+	AssertEqual(Threat.FormatDelta(delta, isLeader), "+1", "sub-cent lead text")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(50000, 0, 90000)
+	AssertNear(delta, -400, "zero percentage does not divide for inference")
+	AssertEqual(isLeader, false, "zero-percentage observable deficit state")
+end
+
 AssertEqual(
 	Threat.SelectHigherRawThreat(nil, 90000),
 	90000,
@@ -87,6 +155,21 @@ AssertEqual(
 	Threat.SelectHigherRawThreat(90000, math.huge),
 	90000,
 	"invalid candidate is ignored"
+)
+AssertEqual(
+	Threat.SelectHigherRawThreat(0, 0),
+	nil,
+	"zero-threat contenders are not meaningful"
+)
+AssertEqual(
+	Threat.SelectHigherRawThreat(90000, 90000),
+	90000,
+	"equal contender preserves highest"
+)
+AssertEqual(
+	Threat.SelectHigherRawThreat(90000, 90000.5),
+	90000.5,
+	"fractional higher contender is preserved exactly"
 )
 
 AssertEqual(Threat.IsTankRole("PALADIN", 2, nil, "NONE", false), true, "protection paladin")
@@ -121,6 +204,51 @@ AssertEqual(
 	Threat.IsTankRole("DRUID", 2, 768, "NONE", false, true),
 	false,
 	"cat form overrides effective-tank helper"
+)
+AssertEqual(
+	Threat.IsTankRole("DRUID", 2, nil, "NONE", false, true),
+	false,
+	"caster form overrides effective-tank helper"
+)
+AssertEqual(
+	Threat.IsTankRole("DRUID", 2, 768, "TANK", false, false),
+	true,
+	"assigned tank overrides cat form"
+)
+AssertEqual(
+	Threat.IsTankRole("DRUID", 2, 5487, "HEALER", false, true),
+	false,
+	"assigned healer overrides bear form"
+)
+AssertEqual(
+	Threat.IsTankRole("WARRIOR", 1, 71, "NONE", false, false),
+	true,
+	"defensive stance overrides negative effective-tank helper"
+)
+AssertEqual(
+	Threat.IsTankRole("WARRIOR", 1, 2457, "NONE", false, true),
+	true,
+	"effective-tank helper covers non-defensive warrior"
+)
+AssertEqual(
+	Threat.IsTankRole("WARRIOR", 3, 2457, "NONE", false, false),
+	false,
+	"negative effective-tank helper overrides Protection talents"
+)
+AssertEqual(
+	Threat.IsTankRole("WARRIOR", 3, 2457, "NONE", false, nil),
+	true,
+	"Protection talents remain the warrior fallback"
+)
+AssertEqual(
+	Threat.IsTankRole("PALADIN", 3, nil, "NONE", false, true),
+	true,
+	"effective-tank helper covers non-Protection paladin"
+)
+AssertEqual(
+	Threat.IsTankRole("MAGE", nil, nil, "NONE", false, nil),
+	false,
+	"class without a tank signal is non-tank"
 )
 
 AssertEqual(Threat.GetSafetyState(true, true, 50, 50), "safe", "tank with aggro is safe")
@@ -199,14 +327,71 @@ AssertEqual(
 	nil,
 	"malformed tanking state has no safety state"
 )
+AssertEqual(
+	Threat.GetSafetyState(false, true, 95, 105),
+	"danger",
+	"tanking suppresses non-tank warning"
+)
+AssertEqual(
+	Threat.GetSafetyState(true, true, 95, 105),
+	"safe",
+	"tanking suppresses tank warning"
+)
+AssertEqual(
+	Threat.GetSafetyState(true, false, 95, 100),
+	"danger",
+	"tank warning requires raw threat above target"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 95, 100),
+	"safe",
+	"non-tank raw-threat equality remains safe below threshold"
+)
+AssertEqual(
+	Threat.GetSafetyState(true, false, 100, 105),
+	"danger",
+	"tank warning requires scaled threat below threshold"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 100, 105),
+	"danger",
+	"non-tank is dangerous at threshold despite raw lead"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 105, nil),
+	nil,
+	"missing raw percentage has no safety state"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 0, -1),
+	nil,
+	"negative raw percentage has no safety state"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 0 / 0, 0),
+	nil,
+	"NaN scaled percentage has no safety state"
+)
+AssertEqual(
+	Threat.GetSafetyState(false, false, 0, 0 / 0),
+	nil,
+	"NaN raw percentage has no safety state"
+)
 
 AssertEqual(Threat.FormatDelta(12300, true), "+12.3k", "thousands format")
 AssertEqual(Threat.FormatDelta(-2000000, false), "-2m", "millions format")
 AssertEqual(Threat.FormatDelta(0, true), "+0", "leader tie format")
 AssertEqual(Threat.FormatDelta(-0.1, false), "-1", "sub-unit deficit format")
+AssertEqual(Threat.FormatDelta(999.49, true), "+999", "below thousands boundary")
+AssertEqual(Threat.FormatDelta(999.5, true), "+1k", "exact thousands rounding boundary")
 AssertEqual(Threat.FormatDelta(999.6, true), "+1k", "rounded thousands boundary")
+AssertEqual(Threat.FormatDelta(999949, true), "+999.9k", "below millions boundary")
+AssertEqual(Threat.FormatDelta(999949.5, true), "+1m", "exact millions rounding boundary")
 AssertEqual(Threat.FormatDelta(999950, true), "+1m", "rounded millions boundary")
+AssertEqual(Threat.FormatDelta(1260000, true), "+1.3m", "fractional millions format")
 AssertEqual(Threat.FormatDelta(math.huge, true), nil, "non-finite delta")
+AssertEqual(Threat.FormatDelta(-math.huge, false), nil, "negative infinite delta")
+AssertEqual(Threat.FormatDelta(0 / 0, true), nil, "NaN delta")
 
 do
 	local delta, isLeader = Threat.CalculateDelta(math.huge, 100, nil)
@@ -218,6 +403,24 @@ do
 	local delta, isLeader = Threat.CalculateDelta(100000, 1e-320, nil)
 	AssertEqual(delta, nil, "overflowing inference delta")
 	AssertEqual(isLeader, false, "overflowing inference state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(100000, -1, nil)
+	AssertEqual(delta, nil, "negative raw percentage delta")
+	AssertEqual(isLeader, false, "negative raw percentage state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(100000, 100, -1)
+	AssertEqual(delta, nil, "negative contender delta")
+	AssertEqual(isLeader, false, "negative contender state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(0 / 0, 100, nil)
+	AssertEqual(delta, nil, "NaN raw threat delta")
+	AssertEqual(isLeader, false, "NaN raw threat state")
 end
 
 print(string.format("Threat math: %d assertions passed", passed))

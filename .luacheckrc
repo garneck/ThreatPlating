@@ -16,6 +16,7 @@ globals = {
 	"GetTime",
 	"IsInGroup",
 	"IsInRaid",
+	"PlayerUtil",
 	"SlashCmdList",
 	"SLASH_THREATPLATING1",
 	"Settings",

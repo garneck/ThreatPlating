@@ -1456,9 +1456,9 @@ end
 local function SaveWindowPosition(window)
 	local windowX, windowY = window:GetCenter()
 	local parentX, parentY = UIParent:GetCenter()
-	if windowX and parentX then
-		db.windowOffsetX = Round(windowX - parentX)
-		db.windowOffsetY = Round(windowY - parentY)
+	if windowX and windowY and parentX and parentY then
+		db.windowOffsetX = addon.NormalizeSettingValue("windowOffsetX", windowX - parentX)
+		db.windowOffsetY = addon.NormalizeSettingValue("windowOffsetY", windowY - parentY)
 	end
 end
 
@@ -1813,6 +1813,11 @@ if addon.testHarness then
 		reflow = function()
 			if configWindow then
 				ReflowWindow(configWindow)
+			end
+		end,
+		saveWindowPosition = function()
+			if configWindow then
+				SaveWindowPosition(configWindow)
 			end
 		end,
 		restoreSession = RestoreSession,

@@ -41,6 +41,71 @@ local function LoadInitWithDatabase(database)
 	return addon
 end
 
+local function ValuesEqual(left, right)
+	if type(left) ~= type(right) then
+		return false
+	end
+	if type(left) ~= "table" then
+		return left == right
+	end
+
+	for key, value in pairs(left) do
+		if not ValuesEqual(value, right[key]) then
+			return false
+		end
+	end
+	for key in pairs(right) do
+		if left[key] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+local defaultsAddon = LoadInitWithDatabase({ schemaVersion = 2 })
+local invalidDatabase = { schemaVersion = 2 }
+local oversizedDatabase = { schemaVersion = 2 }
+local definitionCount = 0
+for key, definition in pairs(defaultsAddon.settingDefinitions) do
+	definitionCount = definitionCount + 1
+	assert(
+		ValuesEqual(defaultsAddon.db[key], defaultsAddon.defaults[key]),
+		"missing setting should use its default: " .. key
+	)
+
+	if definition.valueType == "number" then
+		invalidDatabase[key] = math.huge - math.huge
+		oversizedDatabase[key] = definition.maximum + 100.5
+	else
+		invalidDatabase[key] = "invalid"
+	end
+end
+assert(definitionCount == 24, "the validation matrix should cover every saved setting")
+
+local invalidAddon = LoadInitWithDatabase(invalidDatabase)
+for key in pairs(defaultsAddon.settingDefinitions) do
+	assert(
+		ValuesEqual(invalidAddon.db[key], invalidAddon.defaults[key]),
+		"invalid setting should use its default: " .. key
+	)
+end
+
+local oversizedAddon = LoadInitWithDatabase(oversizedDatabase)
+for key, definition in pairs(defaultsAddon.settingDefinitions) do
+	if definition.valueType == "number" then
+		local expected = definition.maximum
+		if key == "windowOffsetX" then
+			expected = math.min(expected, (1920 - oversizedAddon.db.windowWidth) / 2)
+		elseif key == "windowOffsetY" then
+			expected = math.min(expected, (1080 - oversizedAddon.db.windowHeight) / 2)
+		end
+		assert(
+			oversizedAddon.db[key] == expected,
+			"oversized numeric setting should clamp: " .. key
+		)
+	end
+end
+
 local legacyBackgroundAddon = LoadInitWithDatabase({
 	anchorPoint = "TOP",
 	autoWidth = false,
@@ -117,7 +182,7 @@ local addon = LoadInitWithDatabase({
 	windowOffsetY = -99999,
 })
 
-assert(addon.version == "0.6.2", "runtime version should match the release")
+assert(addon.version == "0.6.3", "runtime version should match the release")
 assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
 assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
 assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")
@@ -167,6 +232,10 @@ lateLoadedDatabase.showBackground = true
 lateLoadedDatabase.backgroundColor = nil
 lateLoadedDatabase.borderMode = nil
 lateLoadedDatabase.padding = 13
+local refreshCount = 0
+addon.RefreshConfig = function()
+	refreshCount = refreshCount + 1
+end
 ThreatPlatingDB = lateLoadedDatabase
 databaseFrame.scripts.OnEvent(databaseFrame, "ADDON_LOADED", "AnotherAddon")
 assert(
@@ -180,6 +249,7 @@ assert(
 	"the saved global should point at the table mutated by the editor"
 )
 assert(addon.db.padding == 13, "late-loaded custom settings should be adopted")
+assert(refreshCount == 1, "late-loaded settings should refresh an initialized configurator")
 assert(addon.db.schemaVersion == 2, "late-loaded legacy settings should migrate")
 assert(
 	addon.db.backgroundColor[4] == 0.90 and addon.db.borderMode == "semantic",

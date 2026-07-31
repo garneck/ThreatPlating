@@ -249,6 +249,7 @@ for _, frame in ipairs(mock.frames) do
 end
 assert(eventFrame, "nameplate event frame should exist")
 assert(addon.NameplatesTest, "raid fixture should expose scheduler state")
+assert(eventFrame.name == nil, "the nameplate event frame must remain unnamed")
 
 local function Dispatch(event, unit)
 	assert(eventFrame.events[event], "event is not registered: " .. event)
@@ -307,6 +308,10 @@ for index = 1, 40 do
 	assert(
 		mock.plates["nameplate" .. index].ThreatPlatingOverlay.shown,
 		"all queued raid plates should complete within eight frames"
+	)
+	assert(
+		mock.plates["nameplate" .. index].ThreatPlatingOverlay.name == nil,
+		"nameplate overlays must remain unnamed"
 	)
 end
 
@@ -515,6 +520,38 @@ Update(0)
 assert(oldPlate.ThreatPlatingOverlay.unit == nil, "recycled plates should release their old owner")
 assert(recycledPlate.ThreatPlatingOverlay.shown, "recycled units should render on their new plate")
 
+local unavailablePlate = mock.plates.nameplate17
+Dispatch("NAME_PLATE_UNIT_REMOVED", "nameplate17")
+mock.plates.nameplate17 = nil
+Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate17")
+assert(
+	unavailablePlate.ThreatPlatingOverlay.unit == nil,
+	"an early add event without an available frame must leave no stale owner"
+)
+local reconciledPlate = NewPlate("nameplate17")
+Update(0.10)
+assert(
+	reconciledPlate.ThreatPlatingOverlay.shown,
+	"the fallback scan should recover an add event that preceded frame availability"
+)
+DrainScheduler()
+
+local queuedPlate = mock.plates.nameplate18
+local queuedRecycleLogIndex = #mock.threatQueryLog + 1
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate18")
+Dispatch("NAME_PLATE_UNIT_REMOVED", "nameplate18")
+mock.plates.nameplate18 = nil
+local queuedReplacementPlate = NewPlate("nameplate18")
+Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate18")
+Update(0.05)
+local queuedRecycleCounts = CountQueriesByEnemy(queuedRecycleLogIndex)
+assert(
+	queuedRecycleCounts.nameplate18 == 50,
+	"recycling must invalidate queued work for the old overlay owner"
+)
+assert(queuedPlate.ThreatPlatingOverlay.unit == nil, "queued recycling should release the old owner")
+assert(queuedReplacementPlate.ThreatPlatingOverlay.shown, "queued recycling should render the replacement")
+
 local stableFrameCount = #mock.frames
 for _ = 1, 3 do
 	local cycleLogIndex = #mock.threatQueryLog + 1
@@ -527,6 +564,110 @@ for _ = 1, 3 do
 	local urgentLength, pollLength = addon.NameplatesTest.getQueueLengths()
 	assert(urgentLength == 0 and pollLength == 0, "repeated cycles must not grow scheduler state")
 end
+
+local steadyLateLogIndex
+local maximumSteadyUrgentLength = 0
+local maximumSteadyPollLength = 0
+for frame = 1, 180 do
+	if frame == 91 then
+		steadyLateLogIndex = #mock.threatQueryLog + 1
+	end
+	Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+	Update(1 / 60)
+	local urgentLength, pollLength = addon.NameplatesTest.getQueueLengths()
+	maximumSteadyUrgentLength = math.max(maximumSteadyUrgentLength, urgentLength)
+	maximumSteadyPollLength = math.max(maximumSteadyPollLength, pollLength)
+end
+local steadyCounts = CountQueriesByEnemy(steadyLateLogIndex)
+for index = 2, 40 do
+	assert(
+		steadyCounts["nameplate" .. index],
+		"continuous targeted events must not starve fallback work for other plates"
+	)
+end
+assert(maximumSteadyUrgentLength <= 1, "targeted event coalescing should bound urgent queue state")
+assert(
+	maximumSteadyPollLength <= 40,
+	"steady fallback polling should not grow beyond one entry per active plate"
+)
+Update(0.05)
+DrainScheduler()
+
+local raidScenario = scenarios.nameplate19
+local raidTargetIdentity = mock.unitIdentity.nameplate19target
+mock:SetParty(4)
+mock.unitIdentity.nameplate19target = "party-member-2"
+scenarios.nameplate19 = {
+	actors = {
+		["party-member-1"] = 90000,
+		["party-pet-4"] = 150000,
+		["raid-member-25"] = 250000,
+		["raid-pet-1"] = 160000,
+	},
+	player = { false, 1, 80, 80, 100000 },
+}
+Dispatch("GROUP_ROSTER_UPDATE")
+local partyLogIndex = #mock.threatQueryLog + 1
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate19")
+Update(0.05)
+local partyCounts = CountQueriesByEnemy(partyLogIndex)
+assert(
+	partyCounts.nameplate19 == 10,
+	"a five-player party should query four party members, four group pets, the player pet, and the player"
+)
+AssertText(
+	"nameplate19",
+	"-600",
+	"the player's separate pet should remain a party contender while stale raid actors are excluded"
+)
+DrainScheduler()
+scenarios.nameplate19 = raidScenario
+mock.unitIdentity.nameplate19target = raidTargetIdentity
+mock:SetRaid(25)
+Dispatch("GROUP_ROSTER_UPDATE")
+DrainScheduler()
+
+malformed["player:nameplate20"] = true
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate20")
+Update(0.05)
+assert(not mock.plates.nameplate20.ThreatPlatingOverlay.shown, "malformed player queries should hide")
+malformed["player:nameplate20"] = nil
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate20")
+Update(0.05)
+assert(mock.plates.nameplate20.ThreatPlatingOverlay.shown, "malformed player queries should recover")
+
+mock.assignedRole = "NONE"
+mock.playerClass = "WARRIOR"
+mock.talentPoints = { 0, 0, 41 }
+Dispatch("PLAYER_ROLES_ASSIGNED")
+Update(0.05)
+assert(addon.playerIsTank, "the role fixture should restore talent-based tank detection")
+DrainScheduler()
+
+local standardGetNumTalentTabs = GetNumTalentTabs
+GetNumTalentTabs = function()
+	return "invalid"
+end
+Dispatch("PLAYER_TALENT_UPDATE")
+assert(not addon.playerIsTank, "a malformed talent-tab count should fail closed without a Lua error")
+GetNumTalentTabs = standardGetNumTalentTabs
+Dispatch("PLAYER_TALENT_UPDATE")
+assert(addon.playerIsTank, "talent detection should recover after a malformed tab count")
+DrainScheduler()
+
+local standardGetShapeshiftForm = GetShapeshiftForm
+mock.playerClass = "DRUID"
+GetShapeshiftForm = function()
+	return "invalid"
+end
+Dispatch("UPDATE_SHAPESHIFT_FORM")
+assert(not addon.playerIsTank, "a malformed form index should fail closed without a Lua error")
+GetShapeshiftForm = standardGetShapeshiftForm
+mock.activeFormSpellID = 5487
+Dispatch("UPDATE_SHAPESHIFT_FORM")
+assert(addon.playerIsTank, "form detection should recover after a malformed form index")
+DrainScheduler()
+
 assert(#mock.frames == stableFrameCount, "repeated raid cycles must not create frames or overlays")
 assert(#mock.frames > initialFrameCount, "the recycle test should create only its replacement frames")
 assert(addon.NameplatesTest.getActiveCount() == 40, "recycling should preserve the active overlay count")

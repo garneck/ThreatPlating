@@ -37,7 +37,7 @@ function Frame:EnableMouse(enabled)
 	self.mouseEnabled = enabled ~= false
 end
 
-function Frame:EnableMouseWheel()
+function Frame.EnableMouseWheel()
 end
 
 function Frame:Disable()
@@ -160,7 +160,7 @@ function Frame:UnregisterEvent(event)
 	self.events[event] = nil
 end
 
-function Frame:RegisterForDrag()
+function Frame.RegisterForDrag()
 end
 
 function Frame:LockHighlight()
@@ -171,7 +171,7 @@ function Frame:SetAllPoints(frame)
 	self.allPoints = frame or self.parent
 end
 
-function Frame:SetBackdrop()
+function Frame.SetBackdrop()
 end
 
 function Frame:SetBackdropBorderColor(...)
@@ -187,7 +187,7 @@ function Frame:SetChecked(checked)
 	self.checked = checked
 end
 
-function Frame:SetClampedToScreen()
+function Frame.SetClampedToScreen()
 end
 
 function Frame:SetClipsChildren()
@@ -209,7 +209,7 @@ function Frame:SetFontObject(fontObject)
 	self.fontObject = fontObject
 end
 
-function Frame:SetFrameStrata()
+function Frame.SetFrameStrata()
 end
 
 function Frame:SetFrameLevel(level)
@@ -220,13 +220,13 @@ function Frame:SetPoint(...)
 	self.points[#self.points + 1] = { ... }
 end
 
-function Frame:SetJustifyH()
+function Frame.SetJustifyH()
 end
 
-function Frame:SetAutoFocus()
+function Frame.SetAutoFocus()
 end
 
-function Frame:SetMaxLetters()
+function Frame.SetMaxLetters()
 end
 
 function Frame:SetMinMaxValues(minimum, maximum)
@@ -238,10 +238,10 @@ function Frame:SetMovable()
 	self.movable = true
 end
 
-function Frame:SetNumeric()
+function Frame.SetNumeric()
 end
 
-function Frame:SetObeyStepOnDrag()
+function Frame.SetObeyStepOnDrag()
 end
 
 function Frame:SetOrientation(orientation)
@@ -260,10 +260,10 @@ function Frame:SetScript(scriptName, callback)
 	self.scripts[scriptName] = callback
 end
 
-function Frame:SetShadowColor()
+function Frame.SetShadowColor()
 end
 
-function Frame:SetShadowOffset()
+function Frame.SetShadowOffset()
 end
 
 function Frame:SetStatusBarColor(...)
@@ -315,7 +315,7 @@ function Frame:GetTexture()
 	return self.texture
 end
 
-function Frame:SetVertexColor()
+function Frame.SetVertexColor()
 end
 
 function Frame:SetWidth(width)
@@ -362,13 +362,13 @@ function Frame:Show()
 	end
 end
 
-function Frame:StartMoving()
+function Frame.StartMoving()
 end
 
-function Frame:StartSizing()
+function Frame.StartSizing()
 end
 
-function Frame:StopMovingOrSizing()
+function Frame.StopMovingOrSizing()
 end
 
 function Frame:UnlockHighlight()
@@ -390,7 +390,7 @@ assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 addon.testHarness = true
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.6.2", "runtime version should match the release")
+assert(addon.version == "0.6.3", "runtime version should match the release")
 assert(addon.updateInterval == 0.10, "fallback poll should run every 0.10 seconds")
 
 local function NewPlate(unit)
@@ -888,6 +888,21 @@ assert(
 	"the preview should return to another current plate after target removal"
 )
 
+plates.nameplate1 = nil
+units.nameplate1 = nil
+window.scripts.OnUpdate(window, 0.50)
+assert(
+	addon.ConfigTest.getPreviewSourceText():GetText() == "Default 128 × 20 nameplate baseline",
+	"the preview should identify the verified fallback when no visible plate is suitable"
+)
+assert(
+	baselineHealthBar:GetWidth() == 128 and baselineHealthBar:GetHeight() == 20,
+	"the preview fallback should use the verified modern nameplate dimensions"
+)
+plates.nameplate1 = disabledPlate
+units.nameplate1 = true
+window.scripts.OnUpdate(window, 0.50)
+
 local framesAfterEditor = #frames
 assert(window.layoutMode == "wide", "the default editor should use the wide layout")
 window:SetSize(600, 600)
@@ -911,6 +926,20 @@ assert(window.layoutMode == "wide", "wide windows should place preview beside co
 assert(#frames == framesAfterEditor, "wide reflow should reuse every existing frame")
 assert(framesAfterEditor > framesBeforeEditor, "opening the editor should create its controls once")
 
+window.centerX = 1392.6
+window.centerY = 452.6
+addon.ConfigTest.saveWindowPosition()
+assert(addon.db.windowOffsetX == 433, "window dragging should save a normalized X offset")
+assert(addon.db.windowOffsetY == -87, "window dragging should save a normalized Y offset")
+window.centerX = 9000
+window.centerY = -9000
+addon.ConfigTest.saveWindowPosition()
+assert(addon.db.windowOffsetX == 4000, "window dragging should clamp the saved X offset")
+assert(addon.db.windowOffsetY == -2400, "window dragging should clamp the saved Y offset")
+window.centerX = 960
+window.centerY = 540
+addon.ConfigTest.saveWindowPosition()
+
 local namedFrameCount = 0
 for _, frame in ipairs(frames) do
 	if frame.name then
@@ -925,6 +954,34 @@ assert(namedFrameCount == 1, "the configurator should create exactly one named f
 
 local sections = addon.ConfigTest.getSections()
 assert(#sections == 5, "all progressive-disclosure sections should exist")
+local expectedControlLabels = {
+	"Enable threat counters",
+	"Anchor preset",
+	"Horizontal offset",
+	"Vertical offset",
+	"Minimum width",
+	"Height",
+	"Expand width for long values",
+	"Horizontal padding",
+	"Font size",
+	"Blizzard font preset",
+	"Text shadow",
+	"Background color",
+	"Background opacity",
+	"Border mode",
+	"Custom border",
+	"Palette",
+	"Custom safe",
+	"Custom danger",
+	"Custom warning",
+}
+assert(
+	#addon.ConfigTest.getControls() == #expectedControlLabels,
+	"the control matrix should cover every display setting"
+)
+for _, label in ipairs(expectedControlLabels) do
+	assert(FindControl(label), "the configurator should expose " .. label)
+end
 local expandedHeight = sections[1].content:GetHeight()
 sections[1].header.scripts.OnClick(sections[1].header)
 assert(sections[1].content.shown == false, "section headers should collapse their content")
@@ -1157,9 +1214,11 @@ assert(
 
 resetApplyKinds = {}
 addon.db.offsetX = 133
+addon.db.safeColor[1] = 0.01
 addon:SetEnabled(false)
 addon.ConfigTest.restoreSession()
 assert(addon.db.offsetX == 6, "Revert should restore the editor-open layout snapshot")
+assert(addon.db.safeColor[1] == 0.35, "Revert should restore an independent color snapshot")
 assert(addon.enabled, "Revert should restore the editor-open enabled state")
 assert(window:GetWidth() == 900, "Revert should not resize the configurator")
 assert(window:GetHeight() == 700, "Revert should not move configurator geometry")
@@ -1252,6 +1311,14 @@ for _, closeCase in ipairs(closeCases) do
 	)
 end
 
+SlashCmdList.THREATPLATING("")
+assert(addon.configPreviewActive, "an empty slash command should open the configurator")
+SlashCmdList.THREATPLATING("close")
+ThreatPlating_OnAddonCompartmentClick()
+assert(addon.configPreviewActive, "the AddOn Compartment should open the configurator")
+ThreatPlating_OnAddonCompartmentClick()
+assert(not addon.configPreviewActive, "the AddOn Compartment should toggle the configurator closed")
+
 local settingsCheck = FindFrame(function(frame)
 	return frame.frameType == "CheckButton"
 		and frame.template == "UICheckButtonTemplate"
@@ -1262,5 +1329,13 @@ addon:SetEnabled(false)
 assert(settingsCheck:GetChecked() == false, "Options enable state should synchronize when disabled")
 addon:SetEnabled(true)
 assert(settingsCheck:GetChecked() == true, "Options enable state should synchronize when enabled")
+
+local settingsOpenButton = FindFrame(function(frame)
+	return frame.text == "Open Editor"
+end)
+assert(settingsOpenButton, "Options should provide an editor button")
+settingsOpenButton.scripts.OnClick(settingsOpenButton)
+assert(addon.configPreviewActive, "the Options editor button should open the configurator")
+addon.CloseConfig()
 
 print("Nameplate runtime: smoke test passed")
