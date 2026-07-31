@@ -52,6 +52,31 @@ do
 end
 
 do
+	local delta, isLeader = Threat.CalculateDelta(116421, 255, nil, true)
+	AssertNear(delta, 1164.21, "tanking 255 sentinel does not infer a phantom contender")
+	AssertEqual(isLeader, true, "tanking 255 sentinel leader state")
+	AssertEqual(Threat.FormatDelta(delta, isLeader), "+1.2k", "tanking 255 sentinel text")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(116421, 255, nil, false)
+	AssertNear(delta, 707.657, "non-tanking 255 remains a usable reference percentage")
+	AssertEqual(isLeader, true, "non-tanking 255 leader state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(116421, 255, 30000, true)
+	AssertNear(delta, 864.21, "exact runner-up survives tanking 255 sentinel")
+	AssertEqual(isLeader, true, "exact runner-up below tanking 255 sentinel")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(116421, 255, 120000, true)
+	AssertNear(delta, -35.79, "exact leader survives tanking 255 sentinel")
+	AssertEqual(isLeader, false, "exact leader above tanking 255 sentinel")
+end
+
+do
 	local delta, isLeader = Threat.CalculateDelta(500000, 100, nil, false)
 	AssertNear(delta, 0, "an exact non-tanking tie is a zero lead, not a full-threat lead")
 	AssertEqual(isLeader, true, "non-tanking tie leader state")

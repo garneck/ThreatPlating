@@ -4,6 +4,7 @@ local Threat = {}
 addon.Threat = Threat
 
 local RAW_THREAT_SCALE = 0.01
+local TANK_RAW_PERCENTAGE_SENTINEL = 255
 local BEAR_FORM_SPELL_ID = 5487
 local DIRE_BEAR_FORM_SPELL_ID = 9634
 local DEFENSIVE_STANCE_SPELL_ID = 71
@@ -161,17 +162,25 @@ function Threat.CalculateDelta(
 		and IsFiniteNumber(rawPercentage)
 		and rawPercentage > 0
 	then
-		local inferredReferenceThreat = playerThreat * 100 / rawPercentage
-		if not IsFiniteNumber(inferredReferenceThreat) then
-			return nil, false
-		end
-
-		-- Exactly 100% means the player is the API's own reference actor, but
-		-- only while the player is actually tanking. A non-tanking player at
-		-- exactly 100% is tied with a distinct reference actor, so the
-		-- inference still applies and the result is a zero lead rather than
-		-- the player's entire threat total.
-		if not (isTanking == true and rawPercentage == 100) then
+		-- TBC Anniversary 2.5.6 can return exactly 255 for the actor that is
+		-- tanking, even when that actor is the only unit on the threat table.
+		-- It is therefore an unusable main-tank sentinel, not evidence of a
+		-- reference actor at playerThreat / 2.55. Keep the exception scoped to
+		-- a tanking source so a real non-tanking 255% reading can still infer
+		-- the current tank during a fixate or other forced-target mechanic.
+		--
+		-- Exactly 100% likewise means the player is the API's own reference
+		-- actor only while actually tanking. A non-tanking player at exactly
+		-- 100% is tied with a distinct reference actor, so inference still
+		-- produces a zero lead rather than the player's entire threat total.
+		local isSelfReference = isTanking == true
+			and (rawPercentage == 100
+				or rawPercentage == TANK_RAW_PERCENTAGE_SENTINEL)
+		if not isSelfReference then
+			local inferredReferenceThreat = playerThreat * 100 / rawPercentage
+			if not IsFiniteNumber(inferredReferenceThreat) then
+				return nil, false
+			end
 			contenderThreat = math.max(contenderThreat, inferredReferenceThreat)
 		end
 	end

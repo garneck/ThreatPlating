@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.2 - 2026-07-31
+
+- Treat the verified TBC Anniversary 2.5.6 tanking `rawPercentage=255` value as an unusable
+  self-reference sentinel, preventing a sole player from acquiring a phantom contender at 1/2.55
+  of the player's threat.
+- Retain exact queryable contenders and non-tanking percentage inference, including a potentially
+  meaningful non-tanking 255% value during forced-target mechanics.
+- Add pure-math and mocked-runtime regression coverage for the captured
+  `true, 3, 100, 255, 116421` client tuple.
+
 ## 0.7.1 - 2026-07-31
 
 - Split role detection, nameplate presentation, threat scheduling/lifecycle, and client probes

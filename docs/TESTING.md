@@ -88,14 +88,18 @@ Expected:
 
 Test without a pet and then with a pet:
 
-1. Enter combat without attacking and let another queryable actor or pet establish threat.
-2. Attack until behind the lead.
-3. Overtake the lead.
-4. Kill the target and repeat while rapidly switching targets.
+1. Without a pet, attack a fresh mob that has no other threat actors and run
+   `/threatplating probe` after gaining aggro.
+2. Enter combat without attacking and let another queryable actor or pet establish threat.
+3. Attack until behind the lead.
+4. Overtake the lead.
+5. Kill the target and repeat while rapidly switching targets.
 
 Expected:
 
 - No badge before meaningful threat exists.
+- A sole tanking actor reports its full raw-threat lead. In particular, a
+  `true, 3, 100, 255, 116421` tuple reads approximately `+1.2k`, not `+700`.
 - As a detected tank, green while actually tanking and red after losing aggro, independently of
   whether the raw-threat value is `+x` or `-x`.
 - As a detected non-tank, green below the scaled pull threshold and red while tanking or at/above
@@ -224,9 +228,11 @@ threat and that a player at 500, the current target at 1000, and a third queryab
 produces `-700`, not `-500`. Record both melee and ranged tuples around the pull thresholds before
 changing the scale or TOC interface.
 
-Also confirm `rawPercentage`'s denominator, since the exactly-100 branch depends on it: while
-tanking it must read 100, and while another actor tanks it must equal the player's threat divided
-by that actor's threat. A non-tanking player exactly level with the lead must read `+0`.
+Also confirm `rawPercentage`'s denominator and main-tank behavior. The verified 2.5.6 client has
+returned exactly 255 for a sole tanking actor; that value is unusable for reference inference and
+must leave exact contender queries authoritative. A tanking 100 remains self-referential. While
+another actor tanks, the percentage must equal the player's threat divided by that actor's threat;
+a non-tanking player exactly level with the lead must read `+0`.
 
 ## Positional API slot verification
 

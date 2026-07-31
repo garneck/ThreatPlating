@@ -27,7 +27,7 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.7.1` addon targeting TBC Anniversary client
+This repository contains a working `0.7.2` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
@@ -44,8 +44,10 @@ Reliability is handled in two layers:
 Every due plate queries every existing party/raid member, group pet, the player's separate pet, and
 a non-duplicate enemy target before selecting the highest observable contender. The API's raw
 percentage is retained only as a reference for a higher actor that has no queryable unit token.
-That reference is treated as the player only while the player is actually tanking; a non-tanking
-player at exactly 100% is tied with a distinct actor and reads `+0`.
+On the verified 2.5.6 client, a tanking sole actor can report `rawPercentage=255`; Threat Plating
+treats that exact tanking value as an unusable self-reference sentinel instead of inventing an
+actor at 1/2.55 of the player's threat. A tanking 100% value is likewise self-referential, while a
+non-tanking player at exactly 100% is tied with a distinct actor and reads `+0`.
 Aggro ownership does not override the signed raw-threat comparison during taunts or fixates.
 Contender scans retain only the highest raw threat and allocate no per-plate list.
 Raw-threat ordering is exact before formatting, so even a sub-unit lead keeps the correct sign
@@ -169,6 +171,7 @@ See [AGENTS.md](AGENTS.md) for architecture and contribution invariants, and
 The implementation was checked against the extracted UI source for live build `2.5.6.68941`:
 
 - [UnitDetailedThreatSituation API signature](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/UnitDocumentation.lua)
+- [Details Tiny Threat's independent main-tank raw-percentage guard](https://github.com/Tercioo/Details-Damage-Meter/blob/1a78ee9cb034e925b1d4664f8a1b5751a27626ff/plugins/Details_TinyThreat/Details_TinyThreat.lua#L302)
 - [Blizzard threat-color behavior](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua)
 - [Classic aggro-threshold measurements](https://github.com/magey/classic-warrior/wiki/Threat-Mechanics#aggro-thresholds)
 - [Nameplate lifecycle events](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/NamePlateManagerDocumentation.lua)

@@ -563,6 +563,19 @@ assert(
 	"unchanged threat text should not be measured or resized again"
 )
 
+-- Live TBC Anniversary 2.5.6 reports rawPercentage=255 for a sole actor
+-- that is tanking. The sentinel must not invent a playerThreat / 2.55
+-- contender when no pet or other queryable actor exists.
+units.pet = false
+threat["player:nameplate1"] = { true, 3, 100, 255, 116421 }
+addon.UpdateAllNameplates()
+Update(0)
+assert(
+	plate.ThreatPlatingOverlay.text.text == "+1.2k",
+	"tanking 255 sentinel should preserve the sole actor's full lead"
+)
+units.pet = true
+
 threat["player:nameplate1"] = { true, 3, 50, 50, 50000 }
 Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
 Update(0.05)

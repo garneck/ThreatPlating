@@ -146,6 +146,7 @@ function addon.DescribeClientAPIs()
 		)
 		Add("  expected: 1=isTanking, 2=status, 3=scaledPercentage, 4=rawPercentage, 5=rawThreat")
 		Add("  rawThreat is divided by 100 for display")
+		Add("  tanking rawPercentage=255 is excluded from reference inference")
 	else
 		Add("UnitDetailedThreatSituation: no target")
 	end

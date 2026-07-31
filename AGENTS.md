@@ -156,11 +156,13 @@ non-duplicate enemy target before selecting the highest contender. The API perce
 infer a higher reference actor that has no queryable unit token, but it must never replace an exact
 higher observable actor. Preserve the zero-threat `-x` case and the leading `+x` runner-up case.
 
-`rawPercentage` is the player's threat as a percentage of the current tank's threat. Exactly 100%
-therefore means the player *is* the reference actor only while `isTanking` is true; a non-tanking
-player at exactly 100% is tied with a distinct actor and must read `+0`, not the player's whole
-threat total. Suppressing the inference on the percentage alone reintroduces a discontinuity where
-99.999999%, 100%, and 100.000001% report `-1`, `+5k`, and `+1`.
+When usable, `rawPercentage` is the player's threat as a percentage of the current tank's threat.
+The verified 2.5.6 client can instead return exactly 255 for a sole actor that is tanking; treat
+that exact value as an unusable self-reference sentinel only while `isTanking` is true. Exactly
+100% likewise means the player *is* the reference actor only while `isTanking` is true. A
+non-tanking player at exactly 100% is tied with a distinct actor and must read `+0`, not the
+player's whole threat total. Suppressing the inference on the percentage alone reintroduces a
+discontinuity where 99.999999%, 100%, and 100.000001% report `-1`, `+5k`, and `+1`.
 
 Treat a completely nil threat tuple as valid zero threat. Hide the badge if the player query fails,
 any required query is restricted or malformed, or the resulting table has no meaningful threat.
