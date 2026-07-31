@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.7.0 - 2026-07-31
+
+- Report an exact tie with an unqueryable reference actor as `+0` instead of the player's entire
+  threat total. The raw percentage is now only treated as self-referential while the player is
+  actually tanking, removing a discontinuity where 99.999999%, 100%, and 100.000001% produced
+  `-1`, `+5k`, and `+1`.
+- Read the nameplate unit token from `unitToken`, the field Blizzard's `NamePlateBaseMixin:SetUnit`
+  actually writes, before the legacy `namePlateUnitToken` and `UnitFrame.unit` fallbacks.
+- Keep `/threatplating test` from permanently re-enabling a disabled addon: the sample now flips
+  the runtime flag only and restores the saved disabled state when the eight seconds expire.
+- Print usage for unknown subcommands instead of silently toggling the configurator, so a typo can
+  no longer close the editor.
+- Stop a resize-grip press with no movement from ratcheting the saved minimum badge width up by the
+  current text width on every touch.
+- Keep the periodic editor refresh from overwriting a slider's edit box while it has keyboard focus,
+  and restore an abandoned partial entry when focus is lost.
+- End an open color-picker session before Reset Layout, Reset Appearance, Reset All, and Revert
+  replace the color tables, so a later cancel cannot resurrect a discarded color.
+- Disable the preview badge's hit box while it sits outside its canvas, and raise every footer
+  button above it, so a badge placed at an extreme offset cannot swallow their clicks.
+- Clear an in-flight preview drag when the editor is hidden mid-drag, which previously froze the
+  passive baseline refresh until the next completed drag.
+- Clear every mirrored text key between baseline reads, so a plate with no readable name is no
+  longer drawn with the previous plate's font, offset, and color.
+- Fail closed when the shapeshift API returns a non-numeric spell ID rather than silently grading
+  bear druids and defensive-stance warriors as non-tanks.
+- Refuse to install over the checkout itself, which previously deleted the working tree and its
+  history when the checkout lived at the documented `Interface\AddOns\ThreatPlating` path.
+- Validate the TOC manifest and load order, pin the toolchain to Lua 5.1, declare read-only
+  Blizzard APIs as read-only, and route tank-role precedence through a single implementation.
+- Add `/threatplating probe`, which prints the raw return tuples of every client API whose slot
+  layout the addon depends on next to the addon's reading of each, so a client patch that shifts a
+  slot is diagnosable immediately instead of appearing as inverted raid colors.
+- Add `tools\link.ps1` to deploy the checkout as a junction for fast iteration, and document that it
+  cannot coexist with the publishing guarantee that only pushed commits reach the client.
+- Make `ThreatPlating.toc` the single source of truth for the shipped file set: `check.ps1` and
+  `install.ps1` both derive their lists from it, `install.ps1` reads the manifest belonging to the
+  revision it installs, and validation now fails if a root Lua file is missing from the TOC or a
+  test suite on disk is never run.
+- Teach the test mock the client's frame-template rules, so a backdrop call without
+  `BackdropTemplate` or a misspelled template name fails locally instead of in game.
+- Add a deterministic 600-step editor interaction fuzz pass covering the interleavings that produced
+  four of this release's bugs, asserting after every step that no interaction can persist a setting
+  startup validation would rewrite and that live color-picker edits reach the current database.
+
 ## 0.6.3 - 2026-07-31
 
 - Preserve exact raw-threat ordering below one displayed threat unit, so a real contender lead can

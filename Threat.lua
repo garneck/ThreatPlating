@@ -8,6 +8,8 @@ local BEAR_FORM_SPELL_ID = 5487
 local DIRE_BEAR_FORM_SPELL_ID = 9634
 local DEFENSIVE_STANCE_SPELL_ID = 71
 
+-- Deliberately local rather than addon.IsFiniteNumber: Threat.lua must stay loadable
+-- without Init.lua so the pure math remains runnable outside WoW.
 local function IsFiniteNumber(value)
 	return type(value) == "number"
 		and value == value
@@ -126,7 +128,12 @@ function Threat.GetSafetyState(
 	return "danger"
 end
 
-function Threat.CalculateDelta(playerRawThreat, rawPercentage, highestContenderRawThreat)
+function Threat.CalculateDelta(
+	playerRawThreat,
+	rawPercentage,
+	highestContenderRawThreat,
+	isTanking
+)
 	if playerRawThreat ~= nil
 		and (not IsFiniteNumber(playerRawThreat) or playerRawThreat < 0)
 	then
@@ -159,10 +166,12 @@ function Threat.CalculateDelta(playerRawThreat, rawPercentage, highestContenderR
 			return nil, false
 		end
 
-		-- At exactly 100%, the percentage does not establish a distinct
-		-- contender; exact queryable ties were collected separately. Every
-		-- other percentage must retain exact inferred raw-threat ordering.
-		if rawPercentage ~= 100 then
+		-- Exactly 100% means the player is the API's own reference actor, but
+		-- only while the player is actually tanking. A non-tanking player at
+		-- exactly 100% is tied with a distinct reference actor, so the
+		-- inference still applies and the result is a zero lead rather than
+		-- the player's entire threat total.
+		if not (isTanking == true and rawPercentage == 100) then
 			contenderThreat = math.max(contenderThreat, inferredReferenceThreat)
 		end
 	end

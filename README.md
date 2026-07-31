@@ -27,7 +27,7 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.6.3` addon targeting TBC Anniversary client
+This repository contains a working `0.7.0` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
@@ -44,6 +44,8 @@ Reliability is handled in two layers:
 Every due plate queries every existing party/raid member, group pet, the player's separate pet, and
 a non-duplicate enemy target before selecting the highest observable contender. The API's raw
 percentage is retained only as a reference for a higher actor that has no queryable unit token.
+That reference is treated as the player only while the player is actually tanking; a non-tanking
+player at exactly 100% is tied with a distinct actor and reads `+0`.
 Aggro ownership does not override the signed raw-threat comparison during taunts or fixates.
 Contender scans retain only the highest raw threat and allocate no per-plate list.
 Raw-threat ordering is exact before formatting, so even a sub-unit lead keeps the correct sign
@@ -51,26 +53,53 @@ while the displayed magnitude remains compact.
 
 ## Install for development
 
-1. Name the checkout folder `ThreatPlating`.
-2. Put it in:
-   `World of Warcraft\_anniversary_\Interface\AddOns\ThreatPlating`
-3. Start or reload the game.
-4. Ensure **Threat Plating** is enabled in the AddOns list.
+Keep the checkout **outside** `Interface\AddOns`. Both options below take `-AddOnsPath`, or read
+`THREATPLATING_ADDONS_PATH`, when more than one client is installed.
 
-For the client detected while this project was created, the full path would be:
+**Fast iteration — link the checkout:**
 
-`D:\World of Warcraft\_anniversary_\Interface\AddOns\ThreatPlating`
+```powershell
+.\tools\link.ps1            # junction: AddOns\ThreatPlating -> this checkout
+.\tools\link.ps1 -Remove
+```
+
+`/reload` then picks up working-tree edits with no copy step. This is deliberately incompatible with
+publishing: while the link is in place `tools\install.ps1` refuses to replace it, so `tools\push.ps1`
+cannot finish either. A link deploys the working tree — uncommitted work included — so the "a push
+only ever deploys the pushed commit" guarantee cannot hold at the same time. Run `-Remove` before
+publishing.
+
+**Release-like — copy a specific version in:**
+
+```powershell
+.\tools\install.ps1                  # the working tree
+.\tools\install.ps1 -Revision HEAD   # exactly that commit
+```
+
+It stages the file set declared by the TOC (of the revision being installed), replaces
+`World of Warcraft\_anniversary_\Interface\AddOns\ThreatPlating` atomically, and rolls back on
+failure. It refuses to run when the destination is the checkout itself, when the destination is a
+link, and when the path is not a TBC Anniversary `Interface\AddOns` directory.
+
+Then start or reload the game and ensure **Threat Plating** is enabled in the AddOns list.
 
 Commands:
 
-- `/threatplating` — open the visual configurator.
+- `/threatplating` — open the visual configurator. Running it again closes it.
 - `/threatplating test` — show a sample `+12.3k` badge for eight seconds on eligible visible plates.
+  If the addon is currently off, the sample enables it for those eight seconds only and the saved
+  disabled state comes back on expiry.
 - `/threatplating test orange` — show the orange threshold-warning variant for eight seconds.
 - `/threatplating status`
+- `/threatplating probe` — print the raw return tuples of the client APIs whose slot layout this
+  addon depends on, next to the addon's reading of each. Use it first when colors or counters look
+  wrong after a client patch.
 - `/threatplating on`
 - `/threatplating off`
 - `/threatplating reset`
 - `/threatplating close`
+
+Any other argument prints the command list rather than toggling the editor.
 
 The configurator is also available from **Options → AddOns → Threat Plating** and the AddOn
 Compartment. It reflows from a stacked layout at narrow sizes to preview-and-controls columns at
@@ -120,10 +149,16 @@ Run all local checks from PowerShell:
 .\tools\check.ps1
 ```
 
-The checks require Lua 5.1, `luac`, and `luacheck`. They cover pure threat math, database
-migration/persistence, a mocked nameplate/configurator lifecycle smoke test, and a deterministic
-25-player, 25-pet, 40-nameplate raid scheduler suite. They lint every runtime and test Lua file and
-keep the release, client build, interface, and pinned UI-source metadata synchronized.
+The checks require Lua 5.1 specifically, `luac`, and `luacheck`, and verify the toolchain version
+rather than trusting it. They cover pure threat math, database migration/persistence, a mocked
+nameplate/configurator lifecycle smoke test, a deterministic 600-step editor interaction fuzz pass,
+and a deterministic 25-player, 25-pet, 40-nameplate raid scheduler suite. They lint every runtime and
+test Lua file and keep the release, client build, interface, and pinned UI-source metadata
+synchronized.
+
+`ThreatPlating.toc` is the single source of truth for which Lua files ship and in what order.
+`check.ps1` and `install.ps1` both derive their file lists from it, and `check.ps1` fails if a Lua
+file in the repository root is missing from the TOC or if a `tests/test_*.lua` suite is never run.
 
 See [AGENTS.md](AGENTS.md) for architecture and contribution invariants, and
 [docs/TESTING.md](docs/TESTING.md) for the in-game test matrix.
@@ -136,6 +171,9 @@ The implementation was checked against the extracted UI source for live build `2
 - [Blizzard threat-color behavior](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua)
 - [Classic aggro-threshold measurements](https://github.com/magey/classic-warrior/wiki/Threat-Mechanics#aggro-thresholds)
 - [Nameplate lifecycle events](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/NamePlateManagerDocumentation.lua)
+- [Nameplate unit-token field (`NamePlateBaseMixin:SetUnit` writes `unitToken`)](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_NamePlates/Blizzard_NamePlateBase.lua)
+- [`GetShapeshiftFormInfo` return slots (`texture, isActive, isCastable, spellID`)](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_ActionBar/Shared/StanceBar.lua)
+- [`GetTalentTabInfo` deprecation shim (`pointsSpent` is the fifth return)](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_DeprecatedSpecialization/Deprecated_Specialization_TBC.lua)
 - [TBC Anniversary default nameplate frame](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_NamePlates/Blizzard_NamePlateUnitFrame.lua)
 - [Frame movement and resize APIs](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/SimpleFrameAPIDocumentation.lua)
 - [AddOn Settings canvas integration](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_Settings_Shared/Blizzard_ImplementationReadme.lua)

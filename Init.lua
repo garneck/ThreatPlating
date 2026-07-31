@@ -1,11 +1,14 @@
 local addonName, addon = ...
 
 addon.name = addonName
-addon.version = "0.6.3"
+addon.version = "0.7.0"
 addon.updateInterval = 0.10
 addon.eventRefreshDelay = 0.05
 addon.testModeUntil = 0
 addon.testPullThresholdWarning = false
+-- One raw-threat sample drives both /threatplating test and the configurator preview,
+-- so the two can never disagree about what a formatted badge looks like.
+addon.sampleThreatDelta = 12300
 addon.configPreviewActive = false
 addon.layoutRevision = 1
 addon.styleRevision = 1
@@ -22,22 +25,36 @@ local VALID_POINTS = {
 	TOPLEFT = true,
 	TOPRIGHT = true,
 }
-local VALID_FONT_PRESETS = {
-	combat = true,
-	nameplate = true,
-	ui = true,
+-- Ordered because the configurator renders them in this order; the accepted-value sets
+-- are derived so the editor can never offer a value that validation rejects.
+local FONT_PRESET_CHOICES = {
+	{ label = "Nameplate", value = "nameplate" },
+	{ label = "UI", value = "ui" },
+	{ label = "Combat", value = "combat" },
 }
-local VALID_BORDER_MODES = {
-	custom = true,
-	off = true,
-	semantic = true,
+local BORDER_MODE_CHOICES = {
+	{ label = "Semantic", value = "semantic" },
+	{ label = "Custom", value = "custom" },
+	{ label = "Off", value = "off" },
 }
-local VALID_PALETTES = {
-	blue = true,
-	custom = true,
-	cyan = true,
-	default = true,
+local PALETTE_CHOICES = {
+	{ label = "Default", value = "default" },
+	{ label = "Blue / Verm.", value = "blue" },
+	{ label = "Cyan / Mag.", value = "cyan" },
+	{ label = "Custom", value = "custom" },
 }
+
+local function ChoiceValueSet(choices)
+	local values = {}
+	for _, choice in ipairs(choices) do
+		values[choice.value] = true
+	end
+	return values
+end
+
+local VALID_FONT_PRESETS = ChoiceValueSet(FONT_PRESET_CHOICES)
+local VALID_BORDER_MODES = ChoiceValueSet(BORDER_MODE_CHOICES)
+local VALID_PALETTES = ChoiceValueSet(PALETTE_CHOICES)
 local SECTION_KEYS = {
 	"general",
 	"position",
@@ -167,6 +184,7 @@ local SETTING_DEFINITIONS = {
 		default = "nameplate",
 		valueType = "enum",
 		values = VALID_FONT_PRESETS,
+		choices = FONT_PRESET_CHOICES,
 		group = "appearance",
 	},
 	{
@@ -187,6 +205,7 @@ local SETTING_DEFINITIONS = {
 		default = "semantic",
 		valueType = "enum",
 		values = VALID_BORDER_MODES,
+		choices = BORDER_MODE_CHOICES,
 		group = "appearance",
 	},
 	{
@@ -201,6 +220,7 @@ local SETTING_DEFINITIONS = {
 		default = "default",
 		valueType = "enum",
 		values = VALID_PALETTES,
+		choices = PALETTE_CHOICES,
 		group = "appearance",
 	},
 	{
@@ -413,6 +433,7 @@ addon.enabled = addon.db.enabled
 addon.Clamp = Clamp
 addon.Round = Round
 addon.CopyValue = CopyValue
+addon.IsFiniteNumber = IsFiniteNumber
 addon.NormalizeSettingValue = function(key, value)
 	local definition = addon.settingDefinitions[key]
 	if not definition or definition.valueType ~= "number" then
@@ -486,6 +507,9 @@ end
 local function SetEnabledValue(self, enabled)
 	self.enabled = enabled and true or false
 	self.db.enabled = self.enabled
+	-- An explicit on/off is the user's decision and outranks a pending test-mode
+	-- restore, which would otherwise flip the addon back when the sample expires.
+	self.testRestoreDisabled = false
 end
 
 local function RefreshEnabledDisplay(self)
@@ -497,9 +521,19 @@ local function RefreshEnabledDisplay(self)
 	end
 end
 
-local function RefreshConfig(self)
+-- Config.lua is last in the TOC, so these hooks genuinely do not exist while Init.lua
+-- and Nameplates.lua run their load-time bodies.
+local function NotifyConfig(self)
 	if self.RefreshConfig then
 		self.RefreshConfig()
+	end
+end
+
+-- Bulk replacements swap the color tables out from under an open picker session, so
+-- the session has to end before the swap rather than resurrect a stale color later.
+local function EndConfigColorPicker(self)
+	if self.EndColorPicker then
+		self.EndColorPicker()
 	end
 end
 
@@ -507,7 +541,7 @@ local function ApplySettingsChange(self, changeKind)
 	if self.ApplyDisplaySettings then
 		self.ApplyDisplaySettings(changeKind)
 	end
-	RefreshConfig(self)
+	NotifyConfig(self)
 end
 
 function addon:RestoreDisplaySettings(snapshot)
@@ -515,6 +549,7 @@ function addon:RestoreDisplaySettings(snapshot)
 		return
 	end
 
+	EndConfigColorPicker(self)
 	CopyKeys(snapshot, self.db, self.layoutSettingKeys)
 	CopyKeys(snapshot, self.db, self.appearanceSettingKeys)
 	local enabledChanged = self.enabled ~= (snapshot.enabled and true or false)
@@ -525,13 +560,13 @@ function addon:RestoreDisplaySettings(snapshot)
 	if enabledChanged then
 		RefreshEnabledDisplay(self)
 	end
-	RefreshConfig(self)
+	NotifyConfig(self)
 end
 
 function addon:SetEnabled(enabled)
 	SetEnabledValue(self, enabled)
 	RefreshEnabledDisplay(self)
-	RefreshConfig(self)
+	NotifyConfig(self)
 end
 
 local function ResetSettings(self, keys, changeKind)
@@ -540,14 +575,17 @@ local function ResetSettings(self, keys, changeKind)
 end
 
 function addon:ResetLayoutSettings()
+	-- Layout keys hold no color tables, so an open picker is left alone here.
 	ResetSettings(self, self.layoutSettingKeys, "layout")
 end
 
 function addon:ResetAppearanceSettings()
+	EndConfigColorPicker(self)
 	ResetSettings(self, self.appearanceSettingKeys, "style")
 end
 
 function addon:ResetAllSettings()
+	EndConfigColorPicker(self)
 	CopyKeys(self.defaults, self.db, self.layoutSettingKeys)
 	CopyKeys(self.defaults, self.db, self.appearanceSettingKeys)
 	local enabledChanged = self.enabled ~= self.defaults.enabled
@@ -558,12 +596,7 @@ function addon:ResetAllSettings()
 	if enabledChanged then
 		RefreshEnabledDisplay(self)
 	end
-	RefreshConfig(self)
-end
-
--- Keep the historical slash-command helper as a compatibility alias.
-function addon:ResetBadgeSettings()
-	self:ResetAllSettings()
+	NotifyConfig(self)
 end
 
 SLASH_THREATPLATING1 = "/threatplating"
@@ -579,15 +612,24 @@ SlashCmdList.THREATPLATING = function(message)
 		addon:SetEnabled(false)
 		Print("disabled.")
 	elseif command == "test" then
-		addon:SetEnabled(true)
+		-- A diagnostic sample must not undo an explicit /threatplating off, so this
+		-- flips the runtime flag only and leaves db.enabled alone. Nameplates.lua
+		-- restores it when testModeUntil expires.
+		if not addon.enabled then
+			addon.enabled = true
+			addon.testRestoreDisabled = true
+		end
 		addon.testModeUntil = GetTime() + 8
 		addon.testPullThresholdWarning = argument == "orange"
 		addon:ScanVisibleNameplates()
 		addon.UpdateAllNameplates()
+		local suffix = addon.testRestoreDisabled and " (enabled for the sample only)" or ""
 		if addon.testPullThresholdWarning then
-			Print("showing orange threshold samples on eligible visible nameplates for 8 seconds.")
+			Print("showing orange threshold samples on eligible visible nameplates for 8 seconds"
+				.. suffix .. ".")
 		else
-			Print("showing sample counters on eligible visible nameplates for 8 seconds.")
+			Print("showing sample counters on eligible visible nameplates for 8 seconds"
+				.. suffix .. ".")
 		end
 	elseif command == "status" then
 		local state = addon.enabled and "enabled" or "disabled"
@@ -602,9 +644,23 @@ SlashCmdList.THREATPLATING = function(message)
 	elseif command == "reset" then
 		addon:ResetAllSettings()
 		Print("layout and appearance reset.")
+	elseif command == "probe" then
+		local lines = addon.DescribeClientAPIs and addon.DescribeClientAPIs()
+		if not lines then
+			Print("client probe unavailable.")
+		else
+			Print("client probe:")
+			for index = 1, #lines do
+				print("  " .. lines[index])
+			end
+		end
 	elseif command == "close" then
 		addon.CloseConfig()
-	else
+	elseif command == "" then
 		addon.ToggleConfig()
+	else
+		Print("unknown command '" .. command
+			.. "'. Use on, off, test [orange], status, probe, reset, close,"
+			.. " or /threatplating on its own for the editor.")
 	end
 end

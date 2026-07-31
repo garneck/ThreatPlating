@@ -182,7 +182,12 @@ local addon = LoadInitWithDatabase({
 	windowOffsetY = -99999,
 })
 
-assert(addon.version == "0.6.3", "runtime version should match the release")
+-- tools\check.ps1 owns cross-file version synchronization (Init.lua, the TOC, README,
+-- CHANGELOG). This only asserts the runtime exposes a usable version at all.
+assert(
+	type(addon.version) == "string" and addon.version:match("^%d+%.%d+%.%d+$"),
+	"the runtime should expose a dotted release version"
+)
 assert(addon.db.enabled == true, "invalid saved booleans should use defaults")
 assert(addon.db.offsetX == 6, "non-finite saved offsets should use defaults")
 assert(addon.db.offsetY == 0, "infinite saved offsets should use defaults")

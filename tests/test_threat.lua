@@ -20,7 +20,7 @@ local function AssertNear(actual, expected, label)
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(120000, 100, 95000)
+	local delta, isLeader = Threat.CalculateDelta(120000, 100, 95000, true)
 	AssertNear(delta, 250, "leader delta")
 	AssertEqual(isLeader, true, "leader state")
 	AssertEqual(Threat.FormatDelta(delta, isLeader), "+250", "leader text")
@@ -46,9 +46,26 @@ do
 end
 
 do
-	local delta, isLeader = Threat.CalculateDelta(100000, 100, 90000)
+	local delta, isLeader = Threat.CalculateDelta(100000, 100, 90000, true)
 	AssertNear(delta, 100, "equal-reference inference is not a duplicate contender")
 	AssertEqual(isLeader, true, "equal-reference leader state")
+end
+
+do
+	local delta, isLeader = Threat.CalculateDelta(500000, 100, nil, false)
+	AssertNear(delta, 0, "an exact non-tanking tie is a zero lead, not a full-threat lead")
+	AssertEqual(isLeader, true, "non-tanking tie leader state")
+	AssertEqual(Threat.FormatDelta(delta, isLeader), "+0", "non-tanking tie text")
+end
+
+do
+	-- The exactly-100 branch must stay continuous with its neighbours.
+	local below = Threat.FormatDelta(Threat.CalculateDelta(500000, 99.999999, nil, false))
+	local exact = Threat.FormatDelta(Threat.CalculateDelta(500000, 100, nil, false))
+	local above = Threat.FormatDelta(Threat.CalculateDelta(500000, 100.000001, nil, false))
+	AssertEqual(below, "-1", "just below the reference")
+	AssertEqual(exact, "+0", "exactly at the reference")
+	AssertEqual(above, "+1", "just above the reference")
 end
 
 do

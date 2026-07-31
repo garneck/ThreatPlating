@@ -42,13 +42,22 @@ function Frame:Hide()
 	if wasShown and self.scripts.OnHide then
 		self.scripts.OnHide(self)
 	end
-	if wasShown and self.hooks.OnHide then
-		self.hooks.OnHide(self)
+	local hooks = wasShown and self.hooks.OnHide
+	if hooks then
+		for index = 1, #hooks do
+			hooks[index](self)
+		end
 	end
 end
 
+-- HookScript appends; it never replaces.
 function Frame:HookScript(scriptName, callback)
-	self.hooks[scriptName] = callback
+	local hooks = self.hooks[scriptName]
+	if not hooks then
+		hooks = {}
+		self.hooks[scriptName] = hooks
+	end
+	hooks[#hooks + 1] = callback
 end
 
 function Frame:IsShown()
@@ -141,7 +150,8 @@ local function NewPlate(unit)
 		HealthBarsContainer = healthBarsContainer,
 		unit = unit,
 	}
-	plate.namePlateUnitToken = unit
+	-- Matches NamePlateBaseMixin:SetUnit on the live client.
+	plate.unitToken = unit
 	mock.plates[unit] = plate
 	return plate
 end
@@ -425,9 +435,11 @@ scenarios.nameplate7 = {
 	actors = { ["raid-member-2"] = 100000 },
 	player = { false, 0, nil, nil, nil },
 }
+-- 130% of the reference infers 92308 raw, which is deliberately lower than the
+-- observable runner-up at 95000: the exact observable actor must win.
 scenarios.nameplate8 = {
 	actors = { ["raid-member-2"] = 95000 },
-	player = { false, 1, 100, 100, 120000 },
+	player = { false, 1, 100, 130, 120000 },
 }
 scenarios.nameplate9 = {
 	actors = { ["raid-pet-1"] = 120000 },
@@ -446,6 +458,19 @@ AssertText("nameplate7", "-1k", "valid nil player threat should preserve the zer
 AssertText("nameplate8", "+250", "leading players should compare against the exact runner-up")
 AssertText("nameplate9", "-200", "the player's pet should remain a separate contender")
 assert(not mock.plates.nameplate10.ThreatPlatingOverlay.shown, "no meaningful threat should hide the badge")
+
+-- A non-tanking player at exactly 100% is tied with a reference actor that has no
+-- queryable token; that is a zero lead, not the player's entire threat total.
+scenarios.nameplate15 = {
+	actors = {},
+	player = { false, 1, 90, 100, 120000 },
+}
+mock.unitIdentity.nameplate15target = "outsider-15"
+Dispatch("UNIT_THREAT_LIST_UPDATE", "nameplate15")
+RunFrames(1, 0.05)
+Update(0)
+AssertText("nameplate15", "+0", "an exact non-tanking tie reports a zero lead")
+mock.unitIdentity.nameplate15target = "raid-member-2"
 
 restricted["raid7:nameplate11"] = true
 malformed["raid8:nameplate12"] = true

@@ -6,49 +6,47 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "Common.ps1")
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$runtimeFiles = @(
-	"ThreatPlating.toc",
-	"Init.lua",
-	"Threat.lua",
-	"Display.lua",
-	"Nameplates.lua",
-	"Config.lua"
-)
 
-if ([string]::IsNullOrWhiteSpace($AddOnsPath)) {
-	$AddOnsPath = $env:THREATPLATING_ADDONS_PATH
+$resolvedRevision = $null
+if ([string]::IsNullOrWhiteSpace($Revision)) {
+	$tocContent = Get-Content -LiteralPath (Join-Path $projectRoot "ThreatPlating.toc") -Raw
 }
-
-if ([string]::IsNullOrWhiteSpace($AddOnsPath)) {
-	$detectedPaths = @(
-		@(Get-PSDrive -PSProvider FileSystem | ForEach-Object {
-			$candidate = Join-Path $_.Root "World of Warcraft\_anniversary_\Interface\AddOns"
-			if (Test-Path -LiteralPath $candidate -PathType Container) {
-				(Get-Item -LiteralPath $candidate).FullName
-			}
-		}) | Sort-Object -Unique
-	)
-
-	if ($detectedPaths.Count -ne 1) {
-		throw "Could not identify one TBC Anniversary AddOns folder. Pass -AddOnsPath or set THREATPLATING_ADDONS_PATH."
+else {
+	$resolvedRevision = & git -C $projectRoot rev-parse --verify --end-of-options "${Revision}^{commit}"
+	if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resolvedRevision)) {
+		throw "Could not resolve revision $Revision to a commit."
 	}
+	$resolvedRevision = $resolvedRevision.Trim()
 
-	$AddOnsPath = $detectedPaths[0]
+	# Read the manifest from the revision being installed, not the working tree, so the
+	# deployed file set always matches the deployed code.
+	$tocContent = (& git -C $projectRoot show "${resolvedRevision}:ThreatPlating.toc") -join "`n"
+	if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tocContent)) {
+		throw "Could not read ThreatPlating.toc from revision $Revision."
+	}
 }
 
-$addOnsDirectory = Get-Item -LiteralPath $AddOnsPath
-if (-not $addOnsDirectory.PSIsContainer -or $addOnsDirectory.Name -ne "AddOns") {
-	throw "The install path must be an existing AddOns directory: $AddOnsPath"
-}
+$runtimeFiles = @("ThreatPlating.toc") + @(Get-AddonRuntimeFile -TocContent $tocContent)
 
-$interfaceDirectory = $addOnsDirectory.Parent
-$clientDirectory = $interfaceDirectory.Parent
-if ($interfaceDirectory.Name -ne "Interface" -or $clientDirectory.Name -ne "_anniversary_") {
-	throw "Refusing to install outside a TBC Anniversary Interface\AddOns directory: $($addOnsDirectory.FullName)"
-}
+$addOnsDirectory = Resolve-AddOnsDirectory -AddOnsPath $AddOnsPath
 
 $destination = Join-Path $addOnsDirectory.FullName "ThreatPlating"
+
+# Installing over the checkout would move it aside and then delete it, taking .git with it.
+$resolvedRoot = (Get-Item -LiteralPath $projectRoot).FullName
+$resolvedDestination = [System.IO.Path]::GetFullPath($destination)
+$destinationPrefix = $resolvedDestination.TrimEnd([System.IO.Path]::DirectorySeparatorChar) +
+	[System.IO.Path]::DirectorySeparatorChar
+if (
+	$resolvedRoot.Equals($resolvedDestination, [StringComparison]::OrdinalIgnoreCase) -or
+	$resolvedRoot.StartsWith($destinationPrefix, [StringComparison]::OrdinalIgnoreCase)
+) {
+	throw "Refusing to install over the checkout itself: $resolvedDestination"
+}
+
 $staging = Join-Path $addOnsDirectory.FullName (".ThreatPlating.deploy." + [Guid]::NewGuid().ToString("N"))
 $archive = $null
 $backup = $null
@@ -67,12 +65,6 @@ try {
 		}
 	}
 	else {
-		$resolvedRevision = & git -C $projectRoot rev-parse --verify --end-of-options "${Revision}^{commit}"
-		if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resolvedRevision)) {
-			throw "Could not resolve revision $Revision to a commit."
-		}
-		$resolvedRevision = $resolvedRevision.Trim()
-
 		$archive = Join-Path ([System.IO.Path]::GetTempPath()) ("ThreatPlating." + [Guid]::NewGuid().ToString("N") + ".zip")
 		& git -C $projectRoot archive --format=zip "--output=$archive" $resolvedRevision -- @runtimeFiles
 		if ($LASTEXITCODE -ne 0) {
@@ -94,8 +86,8 @@ try {
 		if (-not $existingDestination.PSIsContainer) {
 			throw "The addon destination exists but is not a directory: $destination"
 		}
-		if (($existingDestination.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-			throw "Refusing to replace a linked addon directory: $destination"
+		if (Test-ReparsePoint -Item $existingDestination) {
+			throw "Refusing to replace a linked addon directory: $destination. Run tools\link.ps1 -Remove first if you no longer want the development symlink."
 		}
 		if ($existingDestination.Parent.FullName -ne $addOnsDirectory.FullName) {
 			throw "Refusing unexpected addon destination: $destination"
@@ -121,7 +113,7 @@ try {
 			if (
 				-not $failedDestination.PSIsContainer -or
 				$failedDestination.Parent.FullName -ne $addOnsDirectory.FullName -or
-				($failedDestination.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+				(Test-ReparsePoint -Item $failedDestination)
 			) {
 				throw "Installation failed and the partial destination could not be removed safely: $destination"
 			}
@@ -139,7 +131,7 @@ try {
 		$backupDirectory = Get-Item -LiteralPath $backup -Force
 		if (
 			$backupDirectory.Parent.FullName -ne $addOnsDirectory.FullName -or
-			($backupDirectory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+			(Test-ReparsePoint -Item $backupDirectory)
 		) {
 			throw "Refusing to remove unexpected deployment backup: $backup"
 		}

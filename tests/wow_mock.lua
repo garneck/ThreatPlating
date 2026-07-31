@@ -65,7 +65,41 @@ return function(Frame)
 		end
 	end
 
+	-- Templates the addon is allowed to ask for. A typo here is otherwise invisible: the
+	-- shared metatable answers every method regardless of what was requested.
+	local KNOWN_TEMPLATES = {
+		BackdropTemplate = true,
+		InputBoxTemplate = true,
+		UICheckButtonTemplate = true,
+		UIPanelButtonTemplate = true,
+		UIPanelCloseButtonNoScripts = true,
+		UISliderTemplate = true,
+	}
+
+	-- BackdropTemplateMixin stopped being part of the base Frame in this client
+	-- generation, so calling these without the template is a live Lua error in game and
+	-- must be one here too.
+	local BACKDROP_METHODS = {
+		"GetBackdrop",
+		"SetBackdrop",
+		"SetBackdropBorderColor",
+		"SetBackdropColor",
+	}
+
 	function CreateFrame(frameType, name, parent, template)
+		local templates = {}
+		if template ~= nil then
+			if type(template) ~= "string" then
+				error("frame template must be a string, got " .. type(template), 2)
+			end
+			for entry in template:gmatch("[^,%s]+") do
+				if not KNOWN_TEMPLATES[entry] then
+					error("unknown frame template: " .. entry, 2)
+				end
+				templates[entry] = true
+			end
+		end
+
 		local frame = setmetatable({
 			children = {},
 			enabled = true,
@@ -79,7 +113,22 @@ return function(Frame)
 			scripts = {},
 			shown = true,
 			template = template,
+			templates = templates,
 		}, Frame)
+
+		if not templates.BackdropTemplate then
+			for _, method in ipairs(BACKDROP_METHODS) do
+				frame[method] = function()
+					error(
+						method .. " requires BackdropTemplate; "
+							.. tostring(frameType) .. " was created with "
+							.. (template and ("\"" .. template .. "\"") or "no template"),
+						2
+					)
+				end
+			end
+		end
+
 		mock.frames[#mock.frames + 1] = frame
 		if parent and parent.children then
 			parent.children[#parent.children + 1] = frame
@@ -112,6 +161,10 @@ return function(Frame)
 			end
 		end
 		return visible
+	end
+
+	function GetBuildInfo()
+		return "2.5.6", "68941", "Jul 31 2026", 20506
 	end
 
 	function GetNumGroupMembers()

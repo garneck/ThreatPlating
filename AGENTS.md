@@ -30,12 +30,24 @@ and cannot enumerate unrelated actors.
 - TOC interface: `20506`
 - Verified UI source commit: `d6a72ea3cb1942f84396b8cc34de9435fe5c7293`
 
-When the client patches, check `.build.info`, update the extracted UI source, verify the three API
-references in `README.md`, and only then change `## Interface`.
+When the client patches, check `.build.info`, update the extracted UI source, verify every pinned
+UI-source reference in `README.md` (`tools\check.ps1` enforces a floor and that all of them point at
+the verified commit), and only then change `## Interface`.
+
+Positional multi-return APIs are the highest-risk client dependency, because the mock cannot
+disagree with the code. `/threatplating probe` prints the raw tuples next to the addon's reading of
+them; run it first when anything looks wrong after a patch. Re-verify these slot layouts against the
+pinned source on every client update:
+
+- `GetShapeshiftFormInfo(index)` → `texture, isActive, isCastable, spellID`
+- `GetTalentTabInfo(index)` → `specId, name, description, icon, pointsSpent, ...`
+- The nameplate base frame stores its unit token in `unitToken` (`NamePlateBaseMixin:SetUnit`), not
+  `namePlateUnitToken`, which is only a Blizzard parameter name.
 
 ## Architecture
 
-- `Init.lua`: addon identity and slash commands.
+- `Init.lua`: addon identity, the saved-setting schema, validation, migration, the
+  snapshot/restore/reset API, and slash commands.
 - `Threat.lua`: pure threat math, safety-state selection, and compact number formatting.
 - `Display.lua`: shared palette, typography, backdrop, and badge rendering helpers.
 - `Nameplates.lua`: Blizzard API calls, roster cache, plate lifecycle, polling, and rendering.
@@ -47,9 +59,32 @@ references in `README.md`, and only then change `## Interface`.
 - `tests/test_runtime.lua`: mocked nameplate lifecycle smoke test.
 - `tests/test_raid.lua`: deterministic 25-player, 25-pet, 40-nameplate correctness and scheduler
   budget suite.
+- `tools/Common.ps1`: shared TOC manifest parsing and AddOns path resolution for the other scripts.
+- `tools/link.ps1`: development junction from the client's `AddOns\ThreatPlating` to the checkout.
 
-Keep calculations in `Threat.lua` so they remain runnable outside WoW. Keep all frame and unit-token
-access in `Nameplates.lua`.
+The mocks exist to reproduce the client, not the code. When a test and the pinned UI source
+disagree about an API's shape, the mock is wrong. `tests/wow_mock.lua` therefore enforces the
+client's template rules: `SetBackdrop` and friends error without `BackdropTemplate`, and an unknown
+template name is rejected outright.
+
+`ThreatPlating.toc` is the single source of truth for the shipped file set and its load order.
+`check.ps1` and `install.ps1` derive their lists from it; do not add a fourth copy. `install.ps1`
+reads the TOC of the revision it installs, not the working tree.
+
+The end of `tests/test_runtime.lua` runs a deterministic interaction fuzz pass. It exists because
+refresh-during-typing, resize-during-refresh, reset-during-picker, and hide-during-drag were all
+shipped bugs that per-mechanism tests structurally cannot find. When adding an editor mechanism, add
+it as a fuzz action too, and mark it `needsVisibleEditor` if the client would only deliver it to a
+visible frame.
+
+Keep calculations in `Threat.lua` so they remain runnable outside WoW; it must contain no frame or
+unit access, and its `IsFiniteNumber` stays a local copy so `tests/test_threat.lua` can load the
+file without `Init.lua`. Keep unit-token access, Blizzard nameplate lifecycle calls, and per-plate
+frame management in `Nameplates.lua`. `Display.lua` and `Config.lua` may call frame APIs, but only
+on frames handed to them or created by them.
+
+Tank-role precedence lives only in `Threat.IsTankRole`. `Nameplates.lua` gathers the signals and
+passes them in; it must not re-implement any prefix of that decision order.
 
 ## Reliability invariants
 
@@ -87,7 +122,15 @@ access in `Nameplates.lua`.
   is immediate.
 - Persist settings in `ThreatPlatingDB` and validate every saved numeric value during startup.
 - Configuring the addon must never make Blizzard nameplates mouse-interactive or movable.
-- Clip the draggable preview to its canvas so it cannot cover or intercept window controls.
+- Clip the draggable preview to its canvas and disable its hit box while it is out of bounds, so it
+  can neither cover nor intercept window controls. `SetClipsChildren` only clips rendering.
+- Keep every window control above the preview badge, which sits three frame levels deep inside the
+  preview pane.
+- Never read committed geometry back out of the preview badge. Its width is the auto-width result,
+  not the configured minimum; only genuine size changes may write `badgeWidth`/`badgeHeight`.
+- Do not overwrite an edit box that currently has keyboard focus.
+- End an owned color-picker session before any bulk replacement of the color tables.
+- `/threatplating test` may flip the runtime enabled flag but must never write `db.enabled`.
 
 ## Threat math
 
@@ -103,6 +146,12 @@ Every due plate scans all existing party/raid members, group pets, the player's 
 non-duplicate enemy target before selecting the highest contender. The API percentage may still
 infer a higher reference actor that has no queryable unit token, but it must never replace an exact
 higher observable actor. Preserve the zero-threat `-x` case and the leading `+x` runner-up case.
+
+`rawPercentage` is the player's threat as a percentage of the current tank's threat. Exactly 100%
+therefore means the player *is* the reference actor only while `isTanking` is true; a non-tanking
+player at exactly 100% is tied with a distinct actor and must read `+0`, not the player's whole
+threat total. Suppressing the inference on the percentage alone reintroduces a discontinuity where
+99.999999%, 100%, and 100.000001% report `-1`, `+5k`, and `+1`.
 
 Treat a completely nil threat tuple as valid zero threat. Hide the badge if the player query fails,
 any required query is restricted or malformed, or the resulting table has no meaningful threat.
@@ -142,6 +191,14 @@ replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directo
 TOC and five runtime Lua files from the pushed commit, so uncommitted work is never deployed by a
 push. If a push is performed without the wrapper, immediately run `.\tools\install.ps1 -Revision
 HEAD`.
+
+The checkout must live outside `Interface\AddOns`. `install.ps1` refuses to install over itself,
+but the guard exists because the install replaces the destination directory and then deletes the
+copy it moved aside.
+
+`tools\link.ps1` offers a junction instead of a copy for fast iteration. It cannot coexist with
+publishing: `install.ps1` refuses to replace a link, so `push.ps1` cannot complete while one is in
+place. Run `.\tools\link.ps1 -Remove` before publishing.
 
 ## Publishing
 

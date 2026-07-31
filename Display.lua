@@ -34,7 +34,7 @@ function addon:GetSemanticColor(semantic)
 		color = palette and palette[semantic] or self.defaults[semantic .. "Color"]
 	end
 
-	return color[1], color[2], color[3], semantic
+	return color[1], color[2], color[3]
 end
 
 function addon:ApplyBadgeStyle(badge, text)

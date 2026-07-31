@@ -2,17 +2,23 @@
 
 ## Fast smoke test
 
-1. Run `.\tools\install.ps1` to replace `Interface\AddOns\ThreatPlating` with the current checkout.
+1. Deploy the checkout: `.\tools\link.ps1` for iteration, or `.\tools\install.ps1` for a copy. The
+   two are mutually exclusive; the installer refuses to replace a link.
 2. Enable Lua errors with `/console scriptErrors 1`.
 3. Reload with `/reload`.
 4. Turn on enemy nameplates.
 5. Run `/threatplating test` near several attackable NPCs.
 6. Run `/threatplating test orange`.
+7. Run `/threatplating off`, then `/threatplating test`, then wait out the eight seconds.
+8. Run `/threatplating stauts` and any other misspelling.
 
-Expected: every eligible visible NPC plate gets a `+12.3k` badge to the right of its health bar for
-eight seconds. It is green in tank mode and red in non-tank mode. Friendly NPCs, players, and
-player-controlled pets do not get a badge. The orange test uses orange text and border without
-changing layout or eligibility.
+Expected: every eligible visible NPC plate gets a badge — the formatted sample for
+`addon.sampleThreatDelta` — to the right of its health bar for eight seconds. It is green in tank
+mode and red in non-tank mode. Friendly NPCs, players, and player-controlled pets do not get a
+badge. The orange test uses orange text and border without changing layout or eligibility. A sample
+requested while the addon is off says so, samples for eight seconds, and then returns to off; the
+state survives `/reload`. A misspelled subcommand prints the command list and neither opens nor
+closes the editor.
 
 `.\tools\push.ps1` is the normal push command for this checkout. After a successful push, it calls
 the installer with the pushed revision so the game never receives uncommitted files.
@@ -28,16 +34,22 @@ the installer with the pushed revision so the game never receives uncommitted fi
    eligible plates out of range.
 6. Select every Tank/Non-tank and Safe/Danger/Warning scenario combination.
 7. Use all nine anchor presets. Drag the sample badge around the bar and enter exact X/Y values.
-8. Resize the badge from its lower-right grip, then change font size independently.
+8. Resize the badge from its lower-right grip, then change font size independently. Also press and
+   release the grip without moving the cursor several times in a row.
 9. Exercise every slider by dragging and by keyboard entry, including invalid and boundary values.
+   Type a partial value into an edit box, wait more than a second without pressing Enter, then
+   finish typing. Repeat but click away instead of pressing Enter.
 10. Try automatic width, padding, all font presets, text shadow, background RGB/opacity, all border
    modes, all palettes, and custom semantic colors.
 11. Open and cancel the color picker, then open another addon's picker before closing this editor.
+    Also open the picker and, while it is still open, press Reset Appearance, then cancel it.
 12. Use Reset Layout, Reset Appearance, Reset All, and Revert. Move and resize the editor before
     Revert.
-13. Close and reopen through the title X, footer Done, Escape, slash `close`, slash toggle,
+13. Drag the badge far outside the canvas, or set the vertical offset to about -230, then click the
+    footer buttons underneath it. Press Escape mid-drag, then reopen the editor.
+14. Close and reopen through the title X, footer Done, Escape, slash `close`, slash toggle,
     Options → AddOns, and AddOn Compartment.
-14. Reload the UI.
+15. Reload the UI.
 
 Expected:
 
@@ -51,10 +63,17 @@ Expected:
 - The status line identifies the detected role independently from the ephemeral preview role.
 - Real plates update no more than 20 times per second during continuous edits and commit the final
   value immediately.
-- Badge resizing never changes font size, and font changes never change badge height.
+- Badge resizing never changes font size, and font changes never change badge height. A grip press
+  with no cursor movement leaves the saved minimum width and height exactly where they were, no
+  matter how many times it is repeated.
+- A partially typed value survives the passive refresh; clicking away restores the saved value.
 - Custom colors retain the fixed safe, danger, and warning meanings.
 - Canceling restores the pre-picker color. Closing Threat Plating does not close a newer picker
-  session owned by another addon.
+  session owned by another addon. A reset while the picker is open ends the session, and a later
+  cancel does not bring the discarded color back.
+- A badge placed outside its canvas is invisible and does not intercept clicks; the footer buttons
+  underneath it stay clickable. Escape mid-drag closes the editor cleanly and the preview resumes
+  following the baseline when it is reopened.
 - Reset actions apply immediately. Revert restores the session-open display and enabled state but
   preserves the editor's current size and position.
 - Closing the configurator restores real threat values or hides plates without threat.
@@ -204,6 +223,30 @@ meter shows the same actors. Verify that dividing `rawThreat` by 100 reproduces 
 threat and that a player at 500, the current target at 1000, and a third queryable actor at 1200
 produces `-700`, not `-500`. Record both melee and ranged tuples around the pull thresholds before
 changing the scale or TOC interface.
+
+Also confirm `rawPercentage`'s denominator, since the exactly-100 branch depends on it: while
+tanking it must read 100, and while another actor tanks it must equal the player's threat divided
+by that actor's threat. A non-tanking player exactly level with the lead must read `+0`.
+
+## Positional API slot verification
+
+The mocks reproduce the slot layouts the code assumes, so they cannot detect a change. Start with:
+
+```
+/threatplating probe
+```
+
+It prints the raw return tuple of each dependency next to the addon's reading of it, so a shifted
+slot shows up immediately instead of as inverted raid colors. Run it with a target selected, in a
+shapeshift form or stance, and with enemy nameplates visible for full coverage. Then confirm against
+the pinned UI source (and in game) that:
+
+- `GetShapeshiftFormInfo(index)` returns `texture, isActive, isCastable, spellID`. A bear druid and
+  a defensive-stance warrior must both detect as tanks with no group role assigned.
+- `GetTalentTabInfo(index)` returns `pointsSpent` in the fifth slot. A Protection build with the
+  effective-tank helper unavailable must still detect as a tank.
+- The nameplate base frame exposes its unit token as `unitToken`. Badges must still appear when
+  plates become visible without a `NAME_PLATE_UNIT_ADDED` event, which is the path that reads it.
 
 ## Default-nameplate variants
 

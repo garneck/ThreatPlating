@@ -33,12 +33,7 @@ local scanRevision = 0
 local eventFrame = CreateFrame("Frame")
 local referenceVisual = {}
 
-local function IsFiniteNumber(value)
-	return type(value) == "number"
-		and value == value
-		and value ~= math.huge
-		and value ~= -math.huge
-end
+local IsFiniteNumber = addon.IsFiniteNumber
 
 local function QueueRecord(record, queueKind)
 	local overlay = record and record.overlay
@@ -121,6 +116,9 @@ local function GetDominantTalentTree()
 	local highestPoints = -1
 	local tied = false
 
+	-- Slot layout verified against pinned UI source d6a72ea3: the deprecation shim in
+	-- Blizzard_DeprecatedSpecialization returns
+	-- `specId, name, description, icon, pointsSpent, background, previewPointsSpent, isUnlocked`.
 	for index = 1, talentTabCount do
 		local ok, _, _, _, _, pointsSpent = pcall(GetTalentTabInfo, index)
 		if not ok then
@@ -162,11 +160,22 @@ local function GetActiveFormSpellID()
 		return nil
 	end
 
+	-- Slot layout verified against pinned UI source d6a72ea3:
+	-- Blizzard_ActionBar/Shared/StanceBar.lua reads
+	-- `texture, isActive, isCastable, spellID = GetShapeshiftFormInfo(i)`.
 	local formOK, _, isActive, _, spellID = pcall(GetShapeshiftFormInfo, formIndex)
 	if not formOK then
 		return nil
 	end
-	if isActive then
+
+	-- Fail closed rather than hand a non-number to the spell-ID comparisons in
+	-- Threat.IsTankRole, which would silently grade every bear/defensive-stance
+	-- player as a non-tank.
+	if isActive
+		and IsFiniteNumber(spellID)
+		and spellID > 0
+		and spellID == math.floor(spellID)
+	then
 		return spellID
 	end
 
@@ -206,25 +215,11 @@ local function DetectPlayerTankRole()
 
 	local _, classToken = UnitClass("player")
 	local activeFormSpellID = GetActiveFormSpellID()
-	if isMainTank or assignedRole == "TANK" then
-		return true
-	end
-	if assignedRole == "HEALER" or assignedRole == "DAMAGER" then
-		return false
-	end
-	if classToken == "DRUID" then
-		return Threat.IsTankRole(
-			classToken,
-			nil,
-			activeFormSpellID,
-			assignedRole,
-			isMainTank
-		)
-	end
-	if classToken == "WARRIOR" and activeFormSpellID == 71 then
-		return true
-	end
 
+	-- Threat.IsTankRole owns the whole precedence order (assignment, druid form,
+	-- warrior stance, effective-tank helper, legacy talents). Do not re-implement
+	-- any prefix of it here; RefreshPlayerRole runs on role/form/roster changes
+	-- only, never per plate, so the extra guarded lookups are free.
 	local effectiveTank = GetEffectiveTankSignal()
 	return Threat.IsTankRole(
 		classToken,
@@ -259,6 +254,36 @@ end
 
 local function GetUnitFrame(nameplate)
 	return nameplate and (nameplate.UnitFrame or nameplate.unitFrame)
+end
+
+-- NamePlateBaseMixin:SetUnit stores the token as `unitToken` and exposes GetUnit()
+-- (pinned UI source d6a72ea3, Blizzard_NamePlates/Blizzard_NamePlateBase.lua). The
+-- other two forms are compatibility fallbacks for replacement nameplate addons and
+-- must never be the primary read.
+local function GetNameplateUnitToken(nameplate)
+	if not nameplate then
+		return nil
+	end
+
+	local unit = nameplate.unitToken
+	if not unit and type(nameplate.GetUnit) == "function" then
+		local ok, resolved = pcall(nameplate.GetUnit, nameplate)
+		if ok then
+			unit = resolved
+		end
+	end
+	if not unit then
+		unit = nameplate.namePlateUnitToken
+	end
+	if not unit then
+		local unitFrame = GetUnitFrame(nameplate)
+		unit = unitFrame and unitFrame.unit
+	end
+
+	if type(unit) ~= "string" then
+		return nil
+	end
+	return unit
 end
 
 local function GetLegacyHealthBar(unitFrame, nameplate)
@@ -317,12 +342,19 @@ local function ApplyAnchor(overlay, nameplate)
 end
 
 local function ApplyOverlayLayout(overlay, nameplate)
-	if overlay.layoutStyleRevision ~= addon.layoutRevision then
-		overlay.layoutStyleRevision = addon.layoutRevision
+	-- badgeHeight is a layout setting, so this gate follows layoutRevision only.
+	if overlay.heightLayoutRevision ~= addon.layoutRevision then
+		overlay.heightLayoutRevision = addon.layoutRevision
 		overlay:SetHeight(addon.db.badgeHeight)
 	end
 
 	ApplyAnchor(overlay, nameplate)
+end
+
+local function ApplyBadgeWidthForRevision(overlay)
+	addon:ApplyBadgeWidth(overlay, overlay.text)
+	overlay.displayLayoutRevision = addon.layoutRevision
+	overlay.displayStyleRevision = addon.styleRevision
 end
 
 local function ApplyOverlayStyle(overlay)
@@ -390,19 +422,20 @@ local function DisplayValue(record, value, isLeader, safetyState)
 
 	local layoutChanged = overlay.displayLayoutRevision ~= addon.layoutRevision
 	local styleChanged = overlay.displayStyleRevision ~= addon.styleRevision
+	local textChanged = false
 	ApplyOverlayLayout(overlay, record.nameplate)
 	ApplyOverlayStyle(overlay)
 
 	if overlay.displayText ~= text then
 		overlay.displayText = text
 		overlay.text:SetText(text)
-		styleChanged = true
+		textChanged = true
 	end
 
-	if layoutChanged or styleChanged then
-		addon:ApplyBadgeWidth(overlay, overlay.text)
-		overlay.displayLayoutRevision = addon.layoutRevision
-		overlay.displayStyleRevision = addon.styleRevision
+	-- New text can change the measured string width, so it re-runs the width pass
+	-- without pretending the font or colors changed.
+	if layoutChanged or styleChanged or textChanged then
+		ApplyBadgeWidthForRevision(overlay)
 	end
 
 	if styleChanged
@@ -556,14 +589,14 @@ local function UpdateNameplate(unit, record)
 
 	if addon.configPreviewActive then
 		local _, isLeader, safetyState = addon:GetConfigPreviewScenario()
-		DisplayValue(record, 12300, isLeader, safetyState)
+		DisplayValue(record, addon.sampleThreatDelta, isLeader, safetyState)
 		return
 	end
 
 	if addon.testModeUntil > GetTime() then
 		DisplayValue(
 			record,
-			12300,
+			addon.sampleThreatDelta,
 			true,
 			addon.testPullThresholdWarning and "warning"
 				or (addon.playerIsTank and "safe" or "danger")
@@ -603,7 +636,8 @@ local function UpdateNameplate(unit, record)
 	local delta, isLeader = Threat.CalculateDelta(
 		playerRawThreat,
 		rawPercentage,
-		highestContenderRawThreat
+		highestContenderRawThreat,
+		isTanking
 	)
 
 	if delta == nil then
@@ -695,11 +729,7 @@ function addon:ScanVisibleNameplates()
 	scanRevision = scanRevision + 1
 
 	for _, nameplate in ipairs(GetNamePlates()) do
-		local unit = nameplate.namePlateUnitToken
-		local unitFrame = GetUnitFrame(nameplate)
-		if not unit and unitFrame then
-			unit = unitFrame.unit
-		end
+		local unit = GetNameplateUnitToken(nameplate)
 
 		if unit then
 			local record = AddNameplate(unit)
@@ -771,15 +801,19 @@ local function PopQueuedRecord(queueKind, maximumTail)
 	return result
 end
 
+local function EndUrgentBatch()
+	urgentBatchReady = false
+	urgentBatchTail = 0
+	elapsedSinceUrgentRefresh = 0
+end
+
 local function ProcessQueuedNameplates()
 	local processed = 0
 	if urgentBatchReady then
 		while processed < MAX_PLATES_PER_FRAME do
 			local record = PopQueuedRecord("urgent", urgentBatchTail)
 			if not record then
-				urgentBatchReady = false
-				urgentBatchTail = 0
-				elapsedSinceUrgentRefresh = 0
+				EndUrgentBatch()
 				break
 			end
 
@@ -789,9 +823,7 @@ local function ProcessQueuedNameplates()
 		if urgentBatchReady
 			and (urgentTail == 0 or urgentHead > urgentBatchTail)
 		then
-			urgentBatchReady = false
-			urgentBatchTail = 0
-			elapsedSinceUrgentRefresh = 0
+			EndUrgentBatch()
 		end
 	end
 
@@ -830,6 +862,28 @@ local function FiniteOr(value, fallback)
 		return value
 	end
 	return fallback
+end
+
+local TEXT_VISUAL_SUFFIXES = {
+	"Text",
+	"FontPath",
+	"FontSize",
+	"FontFlags",
+	"Red",
+	"Green",
+	"Blue",
+	"Alpha",
+	"OffsetX",
+	"OffsetY",
+}
+
+-- referenceVisual is a single reused table, so every key a prefix can write has to be
+-- cleared before a new plate is read. Otherwise a plate with no readable name is drawn
+-- with the previous plate's font, offset, and color.
+local function ClearTextVisual(prefix)
+	for index = 1, #TEXT_VISUAL_SUFFIXES do
+		referenceVisual[prefix .. TEXT_VISUAL_SUFFIXES[index]] = nil
+	end
 end
 
 local function ReadFontStringVisual(fontString, prefix, healthBar)
@@ -952,8 +1006,8 @@ local function PopulateReferenceVisual(record)
 	referenceVisual.height = height
 	ReadStatusBarVisual(healthBar)
 
-	referenceVisual.nameText = nil
-	referenceVisual.healthText = nil
+	ClearTextVisual("name")
+	ClearTextVisual("health")
 	if unitFrame then
 		ReadFontStringVisual(unitFrame.name, "name", healthBar)
 	end
@@ -1004,9 +1058,7 @@ function addon.ApplyDisplaySettings(changeKind)
 		ApplyOverlayStyle(overlay)
 
 		if overlay.displayText then
-			addon:ApplyBadgeWidth(overlay, overlay.text)
-			overlay.displayLayoutRevision = addon.layoutRevision
-			overlay.displayStyleRevision = addon.styleRevision
+			ApplyBadgeWidthForRevision(overlay)
 			addon:ApplyThreatColor(
 				overlay,
 				overlay.text,
@@ -1014,6 +1066,151 @@ function addon.ApplyDisplaySettings(changeKind)
 			)
 		end
 	end
+end
+
+local function DescribeValue(value)
+	local valueType = type(value)
+	if valueType == "string" then
+		return string.format("%q", value)
+	end
+	if valueType == "number" or valueType == "boolean" or valueType == "nil" then
+		return tostring(value)
+	end
+	return "<" .. valueType .. ">"
+end
+
+-- Receives pcall's results as varargs so the exact arity, including trailing nils, is
+-- preserved. That arity is the whole point of the probe.
+local function DescribeReturns(ok, ...)
+	if not ok then
+		return "error: " .. tostring((...))
+	end
+
+	local count = select("#", ...)
+	if count == 0 then
+		return "(returned nothing)"
+	end
+
+	local description = ""
+	for index = 1, count do
+		if index > 1 then
+			description = description .. ", "
+		end
+		description = description .. index .. "=" .. DescribeValue((select(index, ...)))
+	end
+	return description
+end
+
+local function DescribeCall(fn, ...)
+	if type(fn) ~= "function" then
+		return "unavailable"
+	end
+	return DescribeReturns(pcall(fn, ...))
+end
+
+-- The mocks reproduce the slot layouts this file assumes, so by construction they can
+-- never disagree with it. This reports the raw tuples next to the addon's reading of
+-- them, which turns a client-patch regression from "raid colors look inverted" into a
+-- single glance. See the positional-API list in AGENTS.md.
+function addon.DescribeClientAPIs()
+	local lines = {}
+
+	local function Add(format, ...)
+		lines[#lines + 1] = string.format(format, ...)
+	end
+
+	Add("%s %s", addon.name, addon.version)
+	Add("GetBuildInfo(): %s", DescribeCall(GetBuildInfo))
+
+	-- Every probe names the API it probed even when it cannot call it, so a missing line
+	-- always means the probe itself changed rather than the client being quiet.
+	if type(GetShapeshiftForm) ~= "function" or type(GetShapeshiftFormInfo) ~= "function" then
+		Add("GetShapeshiftFormInfo: unavailable")
+	else
+		local formOK, formIndex = pcall(GetShapeshiftForm)
+		if not formOK then
+			Add("GetShapeshiftFormInfo: skipped, GetShapeshiftForm() errored")
+		elseif type(formIndex) ~= "number" or formIndex <= 0 then
+			Add(
+				"GetShapeshiftFormInfo: skipped, GetShapeshiftForm() = %s",
+				DescribeValue(formIndex)
+			)
+		else
+			Add(
+				"GetShapeshiftFormInfo(%d): %s",
+				formIndex,
+				DescribeCall(GetShapeshiftFormInfo, formIndex)
+			)
+		end
+	end
+	Add("  expected: 1=texture, 2=isActive, 3=isCastable, 4=spellID")
+	Add("  addon reads activeFormSpellID = %s", DescribeValue(GetActiveFormSpellID()))
+
+	if type(GetTalentTabInfo) ~= "function" then
+		Add("GetTalentTabInfo: unavailable")
+	else
+		local tabCount = 3
+		if type(GetNumTalentTabs) == "function" then
+			local ok, count = pcall(GetNumTalentTabs)
+			if ok and type(count) == "number" and count >= 1 then
+				tabCount = count
+			end
+		end
+		for index = 1, math.min(tabCount, 5) do
+			Add("GetTalentTabInfo(%d): %s", index, DescribeCall(GetTalentTabInfo, index))
+		end
+		Add("  expected: 5=pointsSpent")
+	end
+	Add("  addon reads dominantTalentTree = %s", DescribeValue(GetDominantTalentTree()))
+
+	local playerUtil = _G.PlayerUtil
+	if type(playerUtil) ~= "table" or type(playerUtil.IsPlayerEffectivelyTank) ~= "function" then
+		Add("PlayerUtil.IsPlayerEffectivelyTank: unavailable")
+	else
+		Add(
+			"PlayerUtil.IsPlayerEffectivelyTank(): %s",
+			DescribeCall(playerUtil.IsPlayerEffectivelyTank)
+		)
+	end
+	Add("  addon detects role = %s", addon.playerIsTank and "tank" or "non-tank")
+
+	local plates = GetNamePlates()
+	local nameplate = plates and plates[1]
+	if not nameplate then
+		Add("nameplate token: no visible plates")
+	else
+		Add(
+			"nameplate token: unitToken=%s GetUnit()=%s namePlateUnitToken=%s UnitFrame.unit=%s",
+			DescribeValue(nameplate.unitToken),
+			type(nameplate.GetUnit) == "function"
+				and DescribeCall(nameplate.GetUnit, nameplate)
+				or "unavailable",
+			DescribeValue(nameplate.namePlateUnitToken),
+			DescribeValue((GetUnitFrame(nameplate) or {}).unit)
+		)
+		Add("  addon resolves %s", DescribeValue(GetNameplateUnitToken(nameplate)))
+
+		local unitFrame = GetUnitFrame(nameplate)
+		Add(
+			"  anchor fields: HealthBarsContainer=%s healthBar=%s Health=%s",
+			DescribeValue(unitFrame ~= nil and unitFrame.HealthBarsContainer ~= nil),
+			DescribeValue(unitFrame ~= nil and unitFrame.healthBar ~= nil),
+			DescribeValue(unitFrame ~= nil and unitFrame.Health ~= nil)
+		)
+	end
+
+	if UnitExists("target") then
+		Add(
+			"UnitDetailedThreatSituation(player, target): %s",
+			DescribeCall(UnitDetailedThreatSituation, "player", "target")
+		)
+		Add("  expected: 1=isTanking, 2=status, 3=scaledPercentage, 4=rawPercentage, 5=rawThreat")
+		Add("  rawThreat is divided by 100 for display")
+	else
+		Add("UnitDetailedThreatSituation: no target")
+	end
+
+	return lines
 end
 
 local function RequestNameplateRefresh(unit)
@@ -1096,6 +1293,15 @@ eventFrame:SetScript("OnUpdate", function(_, elapsed)
 		if urgentHead <= urgentTail or pollHead <= pollTail then
 			ClearScheduler()
 		end
+		return
+	end
+
+	-- /threatplating test enables the runtime flag without touching db.enabled, so the
+	-- explicit disabled state has to come back when the sample window closes.
+	if addon.testRestoreDisabled and addon.testModeUntil <= GetTime() then
+		addon.testRestoreDisabled = false
+		addon.enabled = false
+		addon.HideAllNameplates()
 		return
 	end
 

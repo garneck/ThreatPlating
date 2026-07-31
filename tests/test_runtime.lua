@@ -7,7 +7,19 @@ function Frame:ClearAllPoints()
 end
 
 function Frame:ClearFocus()
+	local hadFocus = self.hasFocus
 	self.hasFocus = false
+	if hadFocus and self.scripts.OnEditFocusLost then
+		self.scripts.OnEditFocusLost(self)
+	end
+end
+
+function Frame:SetFocus()
+	self.hasFocus = true
+end
+
+function Frame:HasFocus()
+	return self.hasFocus == true
 end
 
 function Frame:CreateFontString()
@@ -139,13 +151,23 @@ function Frame:Hide()
 	if wasShown and self.scripts.OnHide then
 		self.scripts.OnHide(self)
 	end
-	if wasShown and self.hooks.OnHide then
-		self.hooks.OnHide(self)
+	local hooks = wasShown and self.hooks.OnHide
+	if hooks then
+		for index = 1, #hooks do
+			hooks[index](self)
+		end
 	end
 end
 
+-- HookScript appends; it never replaces. Storing a list is what lets a test detect a
+-- duplicate hook installed on a recycled frame.
 function Frame:HookScript(scriptName, callback)
-	self.hooks[scriptName] = callback
+	local hooks = self.hooks[scriptName]
+	if not hooks then
+		hooks = {}
+		self.hooks[scriptName] = hooks
+	end
+	hooks[#hooks + 1] = callback
 end
 
 function Frame:IsShown()
@@ -390,7 +412,11 @@ assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
 addon.testHarness = true
 assert(loadfile("Config.lua"))("ThreatPlating", addon)
 
-assert(addon.version == "0.6.3", "runtime version should match the release")
+-- tools\check.ps1 owns cross-file version synchronization.
+assert(
+	type(addon.version) == "string" and addon.version:match("^%d+%.%d+%.%d+$"),
+	"the runtime should expose a dotted release version"
+)
 assert(addon.updateInterval == 0.10, "fallback poll should run every 0.10 seconds")
 
 local function NewPlate(unit)
@@ -427,7 +453,9 @@ local function NewPlate(unit)
 		unit = unit,
 	}
 	plate.baselineName = unit .. " baseline"
-	plate.namePlateUnitToken = unit
+	-- Matches NamePlateBaseMixin:SetUnit on the live client; the legacy
+	-- namePlateUnitToken / UnitFrame.unit fallbacks are covered separately below.
+	plate.unitToken = unit
 	plates[unit] = plate
 	return plate
 end
@@ -481,6 +509,44 @@ assert(
 	mock.nameplateScanCount == scansBeforePollBoundary + 1,
 	"fallback scan should run after crossing the 0.10-second boundary"
 )
+
+assert(
+	#plate.hooks.OnHide == 1,
+	"a plate should carry exactly one Threat Plating hide hook"
+)
+plate:Hide()
+assert(
+	not plate.ThreatPlatingOverlay.shown,
+	"hiding a pooled plate must hide its badge"
+)
+plate:Show()
+for _ = 1, 5 do
+	Dispatch("NAME_PLATE_UNIT_ADDED", "nameplate1")
+end
+assert(
+	#plate.hooks.OnHide == 1,
+	"re-adding a pooled plate must not append a second hide hook"
+)
+Update(0.05)
+
+-- NamePlateBaseMixin stores the token as unitToken; the other forms are fallbacks
+-- for replacement nameplate addons.
+plate.unitToken = nil
+plate.namePlateUnitToken = "nameplate1"
+addon:ScanVisibleNameplates()
+assert(
+	plate.ThreatPlatingOverlay.unit == "nameplate1",
+	"a legacy namePlateUnitToken plate should still resolve"
+)
+plate.namePlateUnitToken = nil
+addon:ScanVisibleNameplates()
+assert(
+	plate.ThreatPlatingOverlay.unit == "nameplate1",
+	"a plate with only UnitFrame.unit should still resolve"
+)
+plate.unitToken = "nameplate1"
+addon:ScanVisibleNameplates()
+Update(0.05)
 
 local initialSetTextCount = plate.ThreatPlatingOverlay.text.setTextCount
 local initialSetTextColorCount = plate.ThreatPlatingOverlay.text.setTextColorCount
@@ -600,6 +666,34 @@ Dispatch("UPDATE_SHAPESHIFT_FORM")
 Update(0.05)
 assert(not addon.playerIsTank, "Cat Form should select non-tank colors")
 
+mock.playerClass = "WARRIOR"
+mock.activeFormSpellID = 71
+mock.talentPoints = { 30, 5, 5 }
+Dispatch("UPDATE_SHAPESHIFT_FORM")
+Update(0.05)
+assert(addon.playerIsTank, "Defensive Stance should select tank colors in the runtime path")
+
+mock.activeFormSpellID = 2458
+Dispatch("UPDATE_SHAPESHIFT_FORM")
+Update(0.05)
+assert(not addon.playerIsTank, "Berserker Stance should not select tank colors on Arms talents")
+
+-- A non-numeric spell-ID slot must fail closed rather than reach the comparisons in
+-- Threat.IsTankRole, which would silently grade every stance as non-tank.
+mock.activeFormSpellID = 71
+local realShapeshiftFormInfo = GetShapeshiftFormInfo
+GetShapeshiftFormInfo = function()
+	return nil, true, true, "not-a-spell-id"
+end
+Dispatch("UPDATE_SHAPESHIFT_FORM")
+Update(0.05)
+assert(
+	not addon.playerIsTank,
+	"a malformed shapeshift spell ID should fail closed without a Lua error"
+)
+GetShapeshiftFormInfo = realShapeshiftFormInfo
+mock.activeFormSpellID = nil
+
 mock.playerClass = "PALADIN"
 mock.activeFormSpellID = nil
 mock.talentPoints = { 0, 41, 0 }
@@ -713,7 +807,7 @@ assert(recycledPlate.ThreatPlatingOverlay.shown, "plate should recover after a r
 
 plates.nameplate3 = nil
 units.nameplate3 = nil
-recycledPlate.namePlateUnitToken = "nameplate2"
+recycledPlate.unitToken = "nameplate2"
 recycledPlate.UnitFrame.unit = "nameplate2"
 plates.nameplate2 = recycledPlate
 units.nameplate2 = true
@@ -736,7 +830,7 @@ Update(0.10)
 assert(playerPlate.ThreatPlatingOverlay == nil, "player-controlled plates should be ignored")
 
 addon.db.offsetX = 99
-addon:ResetBadgeSettings()
+addon:ResetAllSettings()
 assert(addon.db.offsetX == 6, "reset should restore the default badge offset")
 
 units.nameplate1 = true
@@ -802,6 +896,31 @@ AssertColor(
 	0.35,
 	"normal visual test should use detected role colors"
 )
+
+addon:SetEnabled(false)
+SlashCmdList.THREATPLATING("test")
+assert(addon.enabled == true, "the visual test should sample even while the addon is disabled")
+assert(addon.db.enabled == false, "the visual test must not persist an enabled state")
+mock.now = mock.now + 9
+Update(0.05)
+assert(addon.enabled == false, "the visual test should restore the disabled state on expiry")
+assert(
+	addon.testRestoreDisabled == false,
+	"the restore flag should clear once the sample window closes"
+)
+assert(addon.db.enabled == false, "expiry must leave the saved disabled state untouched")
+
+-- An explicit /threatplating on during the sample window must win over the pending
+-- restore, or the addon would switch itself back off when the sample expires.
+SlashCmdList.THREATPLATING("test")
+assert(addon.testRestoreDisabled == true, "a sample while off should arm the restore")
+SlashCmdList.THREATPLATING("on")
+assert(addon.testRestoreDisabled == false, "an explicit enable should cancel the restore")
+mock.now = mock.now + 9
+Update(0.05)
+assert(addon.enabled == true, "an explicit enable must survive sample expiry")
+assert(addon.db.enabled == true, "an explicit enable should persist")
+addon.testModeUntil = 0
 
 local function AssertNear(actual, expected, label)
 	assert(actual and math.abs(actual - expected) < 0.0001, label)
@@ -878,6 +997,27 @@ baselineRed, baselineGreen, baselineBlue = baselineHealthBar:GetStatusBarColor()
 AssertNear(baselineRed, 0.20, "target baseline red")
 AssertNear(baselineGreen, 0.40, "target baseline green")
 AssertNear(baselineBlue, 0.60, "target baseline blue")
+-- referenceVisual is one reused table, so a plate with no readable name must not be
+-- drawn with the previous plate's font, offset, and color.
+local populatedVisual = addon.GetReferenceNameplateVisual()
+assert(populatedVisual.nameFontPath ~= nil, "a named plate should populate the name font")
+assert(populatedVisual.nameOffsetY ~= nil, "a named plate should populate the name offset")
+targetBaselinePlate.UnitFrame.name:SetText("")
+local clearedVisual = addon.GetReferenceNameplateVisual()
+assert(
+	clearedVisual.nameText == nil,
+	"a plate with no readable name must not leak the previous name text"
+)
+assert(
+	clearedVisual.nameFontPath == nil,
+	"a plate with no readable name must not leak the previous font"
+)
+assert(
+	clearedVisual.nameOffsetY == nil,
+	"a plate with no readable name must not leak the previous offset"
+)
+targetBaselinePlate.UnitFrame.name:SetText("Current target baseline")
+
 mock.targetPlateUnit = nil
 Dispatch("NAME_PLATE_UNIT_REMOVED", "nameplate3")
 plates.nameplate3 = nil
@@ -1054,6 +1194,23 @@ verticalOffset.edit:SetText("not-a-number")
 verticalOffset.edit.scripts.OnEnterPressed(verticalOffset.edit)
 assert(addon.db.offsetY == 19, "invalid numeric entry should restore the saved value")
 
+horizontalOffset.edit:SetFocus()
+horizontalOffset.edit:SetText("-31")
+addon.RefreshConfig()
+assert(
+	horizontalOffset.edit:GetText() == "-31",
+	"the periodic refresh must not overwrite a focused edit box"
+)
+horizontalOffset.edit.scripts.OnEnterPressed(horizontalOffset.edit)
+assert(addon.db.offsetX == -31, "keyboard entry must survive a refresh tick")
+horizontalOffset.edit:SetFocus()
+horizontalOffset.edit:SetText("abandoned")
+horizontalOffset.edit:ClearFocus()
+assert(
+	horizontalOffset.edit:GetText() == "-31",
+	"losing focus must restore an abandoned partial entry"
+)
+
 local fontBeforeResize = addon.db.fontSize
 previewBadge.resizing = true
 previewBadge:SetSize(88, 40)
@@ -1061,6 +1218,64 @@ previewBadge.scripts.OnMouseUp(previewBadge)
 assert(addon.db.badgeWidth == 88, "badge dragging should resize width")
 assert(addon.db.badgeHeight == 40, "badge dragging should resize height")
 assert(addon.db.fontSize == fontBeforeResize, "badge resizing must not change font size")
+
+addon:ResetLayoutSettings()
+local widthBeforeGrip = addon.db.badgeWidth
+local heightBeforeGrip = addon.db.badgeHeight
+assert(
+	previewBadge:GetWidth() > widthBeforeGrip,
+	"the auto-width preview should be wider than the configured minimum"
+)
+previewBadge.resizing = true
+previewBadge.scripts.OnMouseUp(previewBadge)
+assert(
+	addon.db.badgeWidth == widthBeforeGrip and addon.db.badgeHeight == heightBeforeGrip,
+	"a grip press with no movement must not ratchet the saved minimum size"
+)
+
+-- The mock does not resolve anchors into coordinates, so drive both rects directly.
+local previewCanvas = addon.ConfigTest.getPreviewCanvas()
+previewCanvas.width = 360
+previewCanvas.height = 300
+previewCanvas.centerX = 0
+previewCanvas.centerY = 0
+previewBadge.centerX = 0
+previewBadge.centerY = 0
+addon.RefreshConfig()
+assert(previewBadge.mouseEnabled == true, "a badge inside the canvas stays draggable")
+previewBadge.centerY = -400
+addon.RefreshConfig()
+assert(
+	previewBadge.mouseEnabled == false,
+	"a badge dropped below the canvas must not intercept footer clicks"
+)
+previewBadge.centerY = 0
+addon.RefreshConfig()
+assert(previewBadge.mouseEnabled == true, "returning inside the canvas restores dragging")
+
+previewBadge.scripts.OnDragStart(previewBadge)
+assert(previewBadge.dragging, "drag start should mark the badge as dragging")
+addon.CloseConfig()
+assert(previewBadge.dragging == false, "hiding the window must clear an in-flight badge drag")
+addon.OpenConfig()
+
+addon.db.palette = "custom"
+addon.db.safeColor = { 0.5, 0.5, 0.5 }
+addon.ConfigTest.openColorPicker("safeColor", false)
+addon:ResetAppearanceSettings()
+assert(
+	addon.ConfigTest.getPickerOwner() == nil,
+	"a bulk reset must end an open color-picker session"
+)
+AssertNear(addon.db.safeColor[1], 0.35, "reset appearance should install the default safe color")
+if ColorPickerFrame.cancelFunc then
+	ColorPickerFrame.cancelFunc()
+end
+AssertNear(
+	addon.db.safeColor[1],
+	0.35,
+	"a stale picker cancel must not resurrect a color the reset replaced"
+)
 
 local originalApplyDisplaySettings = addon.ApplyDisplaySettings
 local applyCount = 0
@@ -1313,6 +1528,14 @@ end
 
 SlashCmdList.THREATPLATING("")
 assert(addon.configPreviewActive, "an empty slash command should open the configurator")
+SlashCmdList.THREATPLATING("stauts")
+assert(addon.configPreviewActive, "an unknown subcommand must not close the editor")
+SlashCmdList.THREATPLATING("close")
+assert(not addon.configPreviewActive, "slash close should close the editor")
+SlashCmdList.THREATPLATING("stauts")
+assert(not addon.configPreviewActive, "an unknown subcommand must not open the editor either")
+SlashCmdList.THREATPLATING("   ON   ")
+assert(addon.enabled, "the slash parser should tolerate padding and mixed case")
 SlashCmdList.THREATPLATING("close")
 ThreatPlating_OnAddonCompartmentClick()
 assert(addon.configPreviewActive, "the AddOn Compartment should open the configurator")
@@ -1337,5 +1560,416 @@ assert(settingsOpenButton, "Options should provide an editor button")
 settingsOpenButton.scripts.OnClick(settingsOpenButton)
 assert(addon.configPreviewActive, "the Options editor button should open the configurator")
 addon.CloseConfig()
+
+-- The mock must reproduce the client's template rules, or a forgotten template argument
+-- ships as a live Lua error that every local suite happily passes over.
+local plainFrame = CreateFrame("Frame")
+local backdropOK = pcall(function()
+	plainFrame:SetBackdrop({})
+end)
+assert(not backdropOK, "SetBackdrop without BackdropTemplate must error in the mock")
+local backdropFrame = CreateFrame("Frame", nil, nil, "BackdropTemplate")
+assert(
+	pcall(function()
+		backdropFrame:SetBackdrop({})
+	end),
+	"SetBackdrop with BackdropTemplate must work"
+)
+assert(
+	not pcall(CreateFrame, "Frame", nil, nil, "BackdorpTemplate"),
+	"a misspelled template must be rejected by the mock"
+)
+assert(
+	pcall(CreateFrame, "Button", nil, nil, "BackdropTemplate, UIPanelButtonTemplate"),
+	"a comma-separated template list must be accepted"
+)
+
+local probeLines = addon.DescribeClientAPIs()
+assert(type(probeLines) == "table" and #probeLines > 0, "the client probe should return lines")
+local probeText = table.concat(probeLines, "\n")
+for _, expected in ipairs({
+	"GetBuildInfo",
+	"GetShapeshiftFormInfo",
+	"GetTalentTabInfo",
+	"IsPlayerEffectivelyTank",
+	"nameplate token",
+}) do
+	assert(probeText:find(expected, 1, true), "the probe should report " .. expected)
+end
+assert(
+	probeText:find("expected: 1=texture, 2=isActive, 3=isCastable, 4=spellID", 1, true),
+	"the probe should state the shapeshift slot layout it assumes"
+)
+mock.activeFormSpellID = 5487
+probeText = table.concat(addon.DescribeClientAPIs(), "\n")
+assert(
+	probeText:find("addon reads activeFormSpellID = 5487", 1, true),
+	"the probe should report the addon's reading next to the raw tuple"
+)
+mock.activeFormSpellID = nil
+
+local realShapeshiftInfo = GetShapeshiftFormInfo
+GetShapeshiftFormInfo = function()
+	error("restricted")
+end
+mock.activeFormSpellID = 5487
+probeText = table.concat(addon.DescribeClientAPIs(), "\n")
+assert(probeText:find("error:", 1, true), "the probe should survive and report a throwing API")
+GetShapeshiftFormInfo = realShapeshiftInfo
+mock.activeFormSpellID = nil
+
+SlashCmdList.THREATPLATING("probe")
+
+-- Interaction fuzz.
+--
+-- Four of the bugs this suite now covers were interleaving defects: refresh-during-
+-- typing, resize-during-refresh, reset-during-picker, and hide-during-drag. Each
+-- mechanism was already tested in isolation and none of the pairs were. This drives the
+-- editor with a deterministic pseudo-random interleaving and asserts, after every single
+-- step, that the database still holds only values startup validation would accept
+-- unchanged -- i.e. that no interaction can persist a setting that comes back different
+-- after a reload.
+local fuzzState = 12345
+local function NextRandom()
+	-- Small constants so every product stays exactly representable in a double, which
+	-- keeps the sequence identical on every Lua 5.1 build.
+	fuzzState = (fuzzState * 75 + 74) % 65537
+	return fuzzState
+end
+
+local function NextIndex(limit)
+	return NextRandom() % limit + 1
+end
+
+local function NextNumber(minimum, maximum)
+	return minimum + (maximum - minimum) * (NextRandom() % 1001) / 1000
+end
+
+local fuzzSliders = {}
+local fuzzChecks = {}
+for _, control in ipairs(addon.ConfigTest.getControls()) do
+	if control.slider and control.edit then
+		fuzzSliders[#fuzzSliders + 1] = control
+	elseif control.check then
+		fuzzChecks[#fuzzChecks + 1] = control
+	end
+end
+assert(#fuzzSliders > 0 and #fuzzChecks > 0, "the fuzz pass needs sliders and checkboxes")
+
+local fuzzColorKeys = {
+	{ key = "backgroundColor", hasAlpha = true },
+	{ key = "borderColor", hasAlpha = true },
+	{ key = "safeColor", hasAlpha = false },
+	{ key = "dangerColor", hasAlpha = false },
+	{ key = "warningColor", hasAlpha = false },
+}
+local fuzzStates = { "safe", "danger", "warning" }
+
+local function AssertPersistable(context)
+	for key, definition in pairs(addon.settingDefinitions) do
+		local value = addon.db[key]
+		if definition.valueType == "boolean" then
+			assert(type(value) == "boolean", context .. ": " .. key .. " must stay a boolean")
+		elseif definition.valueType == "number" then
+			assert(
+				type(value) == "number" and value == addon.NormalizeSettingValue(key, value),
+				context .. ": " .. key .. " = " .. tostring(value)
+					.. " would be rewritten by startup validation"
+			)
+		elseif definition.valueType == "enum" then
+			assert(
+				definition.values[value],
+				context .. ": " .. key .. " = " .. tostring(value) .. " is not a valid choice"
+			)
+		elseif definition.valueType == "color" then
+			assert(type(value) == "table", context .. ": " .. key .. " must stay a table")
+			for index = 1, definition.components do
+				local component = value[index]
+				assert(
+					type(component) == "number"
+						and component == component
+						and component >= 0
+						and component <= 1,
+					context .. ": " .. key .. "[" .. index .. "] = " .. tostring(component)
+				)
+			end
+		end
+	end
+
+	assert(type(addon.db.collapsedSections) == "table", context .. ": collapsedSections must stay a table")
+	assert(
+		previewBadge.dragging == nil or type(previewBadge.dragging) == "boolean",
+		context .. ": dragging must stay a boolean"
+	)
+	assert(
+		previewBadge.resizing == nil or type(previewBadge.resizing) == "boolean",
+		context .. ": resizing must stay a boolean"
+	)
+
+	local owner = addon.ConfigTest.getPickerOwner()
+	if owner ~= nil then
+		assert(
+			ColorPickerFrame:GetExtraInfo() == owner,
+			context .. ": an owned picker session must still own ColorPickerFrame"
+		)
+	end
+
+	-- A hidden editor runs no mouse scripts, so any interaction flag left set here can
+	-- never be cleared again.
+	if not window:IsShown() then
+		assert(
+			previewBadge.dragging ~= true,
+			context .. ": a hidden editor must not hold an in-flight drag"
+		)
+		assert(
+			previewBadge.resizing ~= true,
+			context .. ": a hidden editor must not hold an in-flight resize"
+		)
+	end
+end
+
+local fuzzActions = {
+	{
+		label = "tick",
+		run = function()
+			window.scripts.OnUpdate(window, 0.1)
+		end,
+	},
+	{
+		label = "tick-past-refresh",
+		run = function()
+			window.scripts.OnUpdate(window, 0.6)
+		end,
+	},
+	{
+		label = "slider-drag",
+		needsVisibleEditor = true,
+		run = function()
+			local control = fuzzSliders[NextIndex(#fuzzSliders)]
+			local minimum, maximum = control.slider:GetMinMaxValues()
+			control.slider.scripts.OnValueChanged(control.slider, NextNumber(minimum, maximum))
+		end,
+	},
+	{
+		label = "slider-release",
+		needsVisibleEditor = true,
+		run = function()
+			local control = fuzzSliders[NextIndex(#fuzzSliders)]
+			control.slider.scripts.OnMouseUp(control.slider)
+		end,
+	},
+	{
+		label = "edit-focus-type",
+		needsVisibleEditor = true,
+		run = function()
+			local control = fuzzSliders[NextIndex(#fuzzSliders)]
+			control.edit:SetFocus()
+			if NextRandom() % 4 == 0 then
+				control.edit:SetText("not-a-number")
+			else
+				local minimum, maximum = control.slider:GetMinMaxValues()
+				control.edit:SetText(tostring(NextNumber(minimum - 20, maximum + 20)))
+			end
+		end,
+	},
+	{
+		label = "edit-commit",
+		needsVisibleEditor = true,
+		run = function()
+			local control = fuzzSliders[NextIndex(#fuzzSliders)]
+			control.edit.scripts.OnEnterPressed(control.edit)
+		end,
+	},
+	{
+		label = "edit-abandon",
+		needsVisibleEditor = true,
+		run = function()
+			local control = fuzzSliders[NextIndex(#fuzzSliders)]
+			control.edit:ClearFocus()
+		end,
+	},
+	{
+		label = "check-toggle",
+		needsVisibleEditor = true,
+		run = function()
+			local control = fuzzChecks[NextIndex(#fuzzChecks)]
+			control.frame.scripts.OnClick(control.frame)
+		end,
+	},
+	{
+		label = "drag-start",
+		needsVisibleEditor = true,
+		run = function()
+			previewBadge.scripts.OnDragStart(previewBadge)
+		end,
+	},
+	{
+		label = "drag-stop",
+		needsVisibleEditor = true,
+		run = function()
+			previewBadge.centerX = NextNumber(-400, 400)
+			previewBadge.centerY = NextNumber(-400, 400)
+			previewBadge.scripts.OnDragStop(previewBadge)
+		end,
+	},
+	{
+		label = "grip-press",
+		needsVisibleEditor = true,
+		run = function()
+			previewBadge.resizing = true
+		end,
+	},
+	{
+		label = "grip-size",
+		needsVisibleEditor = true,
+		run = function()
+			previewBadge:SetSize(NextNumber(10, 220), NextNumber(4, 90))
+		end,
+	},
+	{
+		label = "grip-release",
+		needsVisibleEditor = true,
+		run = function()
+			previewBadge.scripts.OnMouseUp(previewBadge)
+		end,
+	},
+	{
+		label = "picker-open",
+		run = function()
+			local choice = fuzzColorKeys[NextIndex(#fuzzColorKeys)]
+			addon.ConfigTest.openColorPicker(choice.key, choice.hasAlpha)
+		end,
+	},
+	{
+		label = "picker-move",
+		run = function()
+			local pickedRed = NextNumber(0, 1)
+			local pickedGreen = NextNumber(0, 1)
+			local pickedBlue = NextNumber(0, 1)
+			ColorPickerFrame:SetColorRGB(pickedRed, pickedGreen, pickedBlue)
+			ColorPickerFrame.opacity = NextNumber(0, 1)
+			if ColorPickerFrame.swatchFunc then
+				ColorPickerFrame.swatchFunc()
+			end
+
+			-- The oracle for the whole reset-during-picker class: a live wheel edit must
+			-- land in the table the database currently holds, not in one a reset or
+			-- revert replaced underneath the session.
+			local owner = addon.ConfigTest.getPickerOwner()
+			if owner and ColorPickerFrame:IsShown() then
+				local stored = addon.db[owner.key]
+				assert(
+					type(stored) == "table"
+						and math.abs(stored[1] - pickedRed) < 0.0001
+						and math.abs(stored[2] - pickedGreen) < 0.0001
+						and math.abs(stored[3] - pickedBlue) < 0.0001,
+					"a live picker edit must reach the current database table for " .. owner.key
+				)
+			end
+		end,
+	},
+	{
+		label = "picker-cancel",
+		run = function()
+			if ColorPickerFrame.cancelFunc then
+				ColorPickerFrame.cancelFunc()
+			end
+		end,
+	},
+	{
+		label = "picker-end",
+		run = function()
+			addon.ConfigTest.endColorPicker()
+		end,
+	},
+	{
+		label = "reset-layout",
+		needsVisibleEditor = true,
+		run = function()
+			addon:ResetLayoutSettings()
+		end,
+	},
+	{
+		label = "reset-appearance",
+		needsVisibleEditor = true,
+		run = function()
+			addon:ResetAppearanceSettings()
+		end,
+	},
+	{
+		label = "reset-all",
+		run = function()
+			addon:ResetAllSettings()
+		end,
+	},
+	{
+		label = "revert",
+		needsVisibleEditor = true,
+		run = function()
+			addon.ConfigTest.restoreSession()
+		end,
+	},
+	{
+		label = "anchor-preset",
+		needsVisibleEditor = true,
+		run = function()
+			addon.ConfigTest.useAnchorPreset(NextIndex(#addon.ConfigTest.anchorPresets))
+		end,
+	},
+	{
+		label = "scenario",
+		needsVisibleEditor = true,
+		run = function()
+			addon.ConfigTest.setScenario(NextRandom() % 2 == 0, fuzzStates[NextIndex(#fuzzStates)])
+		end,
+	},
+	{
+		label = "reflow",
+		needsVisibleEditor = true,
+		run = function()
+			addon.ConfigTest.reflow()
+		end,
+	},
+	{
+		label = "window-hide",
+		run = function()
+			window:Hide()
+		end,
+	},
+	{
+		label = "window-show",
+		run = function()
+			addon.OpenConfig()
+		end,
+	},
+}
+
+addon.OpenConfig()
+AssertPersistable("fuzz start")
+local fuzzCoverage = {}
+for step = 1, 600 do
+	local action = fuzzActions[NextIndex(#fuzzActions)]
+	-- WoW delivers no mouse or keyboard scripts to a hidden frame, so firing a control's
+	-- handler while the editor is closed would test a state the client cannot produce.
+	if not (action.needsVisibleEditor and not window:IsShown()) then
+		local context = string.format("fuzz step %d (%s)", step, action.label)
+		local ok, err = pcall(action.run)
+		assert(ok, context .. " errored: " .. tostring(err))
+		AssertPersistable(context)
+		fuzzCoverage[action.label] = (fuzzCoverage[action.label] or 0) + 1
+	end
+end
+
+-- A fuzz pass that quietly stops exercising a mechanism is worse than none at all.
+for _, action in ipairs(fuzzActions) do
+	assert(
+		(fuzzCoverage[action.label] or 0) > 0,
+		"the fuzz pass never ran the " .. action.label .. " action"
+	)
+end
+
+addon.CloseConfig()
+addon:ResetAllSettings()
+AssertPersistable("after fuzz reset")
 
 print("Nameplate runtime: smoke test passed")

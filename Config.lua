@@ -320,6 +320,36 @@ local function ApplyReferenceTextVisual(
 	)
 end
 
+-- SetClipsChildren only clips rendering; the badge keeps its hit box outside the canvas
+-- and would swallow clicks meant for the footer buttons underneath. Test for overlap,
+-- not containment: a badge clipped at an edge is still partly visible and must stay
+-- draggable, while a badge with nothing on screen must never take a click.
+local function UpdatePreviewBadgeHitBox()
+	if not previewBadge or not previewCanvas then
+		return
+	end
+
+	local badgeLeft, badgeRight = previewBadge:GetLeft(), previewBadge:GetRight()
+	local badgeTop, badgeBottom = previewBadge:GetTop(), previewBadge:GetBottom()
+	local canvasLeft, canvasRight = previewCanvas:GetLeft(), previewCanvas:GetRight()
+	local canvasTop, canvasBottom = previewCanvas:GetTop(), previewCanvas:GetBottom()
+
+	if not (badgeLeft and badgeRight and badgeTop and badgeBottom
+		and canvasLeft and canvasRight and canvasTop and canvasBottom)
+	then
+		-- Unresolved geometry: leave the badge interactive rather than trap the user.
+		previewBadge:EnableMouse(true)
+		return
+	end
+
+	local visible = badgeRight > canvasLeft
+		and badgeLeft < canvasRight
+		and badgeTop > canvasBottom
+		and badgeBottom < canvasTop
+
+	previewBadge:EnableMouse(visible)
+end
+
 local function ApplyPreviewVisuals()
 	if not previewBadge then
 		UpdateStatus()
@@ -329,7 +359,7 @@ local function ApplyPreviewVisuals()
 
 	applyingPreview = true
 	local isTank, isLeader, safetyState = GetScenario()
-	local sampleText = isLeader and "+12.3k" or "-12.3k"
+	local sampleText = addon.Threat.FormatDelta(addon.sampleThreatDelta, isLeader)
 	previewBadgeText:SetText(sampleText)
 	addon:ApplyBadgeStyle(previewBadge, previewBadgeText)
 
@@ -384,17 +414,23 @@ local function ApplyPreviewVisuals()
 			or "Default 128 × 20 nameplate baseline"
 	)
 
-	previewBadge:SetSize(addon:GetBadgeWidth(previewBadgeText), db.badgeHeight)
 	addon:ApplyThreatColor(previewBadge, previewBadgeText, safetyState)
 
-	previewBadge:ClearAllPoints()
-	previewBadge:SetPoint(
-		db.anchorPoint,
-		previewHealthBar,
-		db.relativePoint,
-		db.offsetX,
-		db.offsetY
-	)
+	-- Never fight a live StartSizing: resizing the frame under the cursor would make
+	-- the grip jump and feed the mock size back into the saved value.
+	if not previewBadge.resizing then
+		previewBadge:SetSize(addon:GetBadgeWidth(previewBadgeText), db.badgeHeight)
+		previewBadge:ClearAllPoints()
+		previewBadge:SetPoint(
+			db.anchorPoint,
+			previewHealthBar,
+			db.relativePoint,
+			db.offsetX,
+			db.offsetY
+		)
+	end
+
+	UpdatePreviewBadgeHitBox()
 
 	for key, button in pairs(scenarioButtons) do
 		local selected = key == (isTank and "tank" or "nonTank")
@@ -508,8 +544,10 @@ local function StopPreviewResize()
 
 	previewBadge:StopMovingOrSizing()
 	previewBadge.resizing = false
-	db.badgeWidth = addon.NormalizeSettingValue("badgeWidth", previewBadge:GetWidth())
-	db.badgeHeight = addon.NormalizeSettingValue("badgeHeight", previewBadge:GetHeight())
+
+	-- Do not read the frame back here. Its width is the auto-width result, not the
+	-- configured minimum, so a grip press with no movement would ratchet badgeWidth
+	-- up by the current text width. OnSizeChanged already records genuine drags.
 	QueueDisplayChange("layout", true)
 end
 
@@ -538,6 +576,9 @@ local function EndOwnedColorPicker()
 	end
 end
 
+-- Init.lua's bulk settings paths call this before replacing the color tables.
+addon.EndColorPicker = EndOwnedColorPicker
+
 local function OpenColorPicker(key, hasAlpha)
 	if not ColorPickerFrame then
 		return
@@ -561,12 +602,20 @@ local function OpenColorPicker(key, hasAlpha)
 		if owner.opening then
 			return
 		end
+
+		-- Resolve the table on every callback: a reset or revert replaces db[key]
+		-- outright, and writing through a captured reference would edit an orphan.
+		local target = db[key]
+		if type(target) ~= "table" then
+			return
+		end
+
 		local red, green, blue = ColorPickerFrame:GetColorRGB()
-		color[1] = Clamp(red, 0, 1)
-		color[2] = Clamp(green, 0, 1)
-		color[3] = Clamp(blue, 0, 1)
+		target[1] = Clamp(red, 0, 1)
+		target[2] = Clamp(green, 0, 1)
+		target[3] = Clamp(blue, 0, 1)
 		if hasAlpha and ColorPickerFrame.GetColorAlpha then
-			color[4] = Clamp(ColorPickerFrame:GetColorAlpha(), 0, 1)
+			target[4] = Clamp(ColorPickerFrame:GetColorAlpha(), 0, 1)
 		end
 		QueueDisplayChange("style", not ColorPickerFrame:IsShown())
 	end
@@ -576,11 +625,11 @@ local function OpenColorPicker(key, hasAlpha)
 			return
 		end
 		db[key] = addon.CopyValue(original)
-		color = db[key]
 		pickerOwner = nil
 		ColorPickerFrame.swatchFunc = nil
 		ColorPickerFrame.opacityFunc = nil
 		ColorPickerFrame.cancelFunc = nil
+		ColorPickerFrame.hasOpacity = false
 		ColorPickerFrame.extraInfo = nil
 		QueueDisplayChange("style", true)
 	end
@@ -943,6 +992,7 @@ local function CreateSliderRow(
 		RestoreEdit()
 		self:ClearFocus()
 	end)
+	edit:SetScript("OnEditFocusLost", RestoreEdit)
 
 	local control = {
 		edit = edit,
@@ -953,7 +1003,11 @@ local function CreateSliderRow(
 	function control:refresh()
 		local value = getter()
 		self.slider:SetValue(value)
-		self.edit:SetText(FormatValue(value))
+		-- The window refreshes every 0.5s on a cadence the user cannot influence,
+		-- so an in-progress keyboard entry must survive it.
+		if not (self.edit.HasFocus and self.edit:HasFocus()) then
+			self.edit:SetText(FormatValue(value))
+		end
 	end
 	controls[#controls + 1] = control
 	return control
@@ -1042,7 +1096,6 @@ local function CreateSettingChoiceRow(
 	key,
 	labelText,
 	tooltip,
-	choices,
 	changeKind,
 	height
 )
@@ -1050,7 +1103,7 @@ local function CreateSettingChoiceRow(
 		section,
 		labelText,
 		tooltip,
-		choices,
+		settingDefinitions[key].choices,
 		function()
 			return db[key]
 		end,
@@ -1204,11 +1257,6 @@ local function CreateTypographySection(parent)
 		"fontPreset",
 		"Blizzard font preset",
 		"Use a stock Blizzard font object; no fonts are bundled.",
-		{
-			{ label = "Nameplate", value = "nameplate" },
-			{ label = "UI", value = "ui" },
-			{ label = "Combat", value = "combat" },
-		},
 		"style"
 	)
 	CreateSettingCheckRow(
@@ -1249,11 +1297,6 @@ local function CreateAppearanceSection(parent)
 		"borderMode",
 		"Border mode",
 		"Semantic follows the threat color; custom uses one fixed color.",
-		{
-			{ label = "Semantic", value = "semantic" },
-			{ label = "Custom", value = "custom" },
-			{ label = "Off", value = "off" },
-		},
 		"style"
 	)
 	CreateColorRow(
@@ -1275,12 +1318,6 @@ local function CreateThreatColorsSection(parent)
 		"palette",
 		"Palette",
 		"Palette changes presentation only; safe, danger, and warning meanings stay fixed.",
-		{
-			{ label = "Default", value = "default" },
-			{ label = "Blue / Verm.", value = "blue" },
-			{ label = "Cyan / Mag.", value = "cyan" },
-			{ label = "Custom", value = "custom" },
-		},
 		"style",
 		86
 	)
@@ -1511,6 +1548,8 @@ local function CreateWindowTitle(window)
 	titleBar:SetPoint("TOPLEFT", window, "TOPLEFT", 1, -1)
 	titleBar:SetPoint("TOPRIGHT", window, "TOPRIGHT", -1, -1)
 	titleBar:SetHeight(40)
+	-- Above the preview badge, below the close button created at +100.
+	titleBar:SetFrameLevel(window:GetFrameLevel() + 90)
 	titleBar:EnableMouse(true)
 	titleBar:RegisterForDrag("LeftButton")
 	titleBar:SetScript("OnDragStart", function()
@@ -1546,6 +1585,9 @@ local function CreateWindowTitle(window)
 end
 
 local function CreateWindowFooter(window)
+	-- Every footer control has to outrank the preview badge, which lives three levels
+	-- deep inside the preview pane.
+	local footerLevel = window:GetFrameLevel() + 100
 	local footerBackground = window:CreateTexture(nil, "BACKGROUND")
 	footerBackground:SetColorTexture(0.02, 0.03, 0.04, 0.98)
 	footerBackground:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 1, 1)
@@ -1556,22 +1598,25 @@ local function CreateWindowFooter(window)
 		addon:ResetLayoutSettings()
 	end, "Restore position and size defaults immediately.")
 	resetLayout:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 12, 13)
+	resetLayout:SetFrameLevel(footerLevel)
 
 	local resetAppearance = CreateButton(window, "Reset Appearance", 110, function()
 		addon:ResetAppearanceSettings()
 	end, "Restore typography, background, border, and color defaults immediately.")
 	resetAppearance:SetPoint("LEFT", resetLayout, "RIGHT", 4, 0)
+	resetAppearance:SetFrameLevel(footerLevel)
 
 	local resetAll = CreateButton(window, "Reset All", 74, function()
 		addon:ResetAllSettings()
 	end, "Restore every display setting and enable the addon.")
 	resetAll:SetPoint("LEFT", resetAppearance, "RIGHT", 4, 0)
+	resetAll:SetFrameLevel(footerLevel)
 
 	local done = CreateButton(window, "Done", 70, function()
 		addon.CloseConfig()
 	end, "Keep changes and close the editor.")
 	done:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -12, 13)
-	done:SetFrameLevel(window:GetFrameLevel() + 100)
+	done:SetFrameLevel(footerLevel)
 
 	local revert = CreateButton(
 		window,
@@ -1581,6 +1626,7 @@ local function CreateWindowFooter(window)
 		"Restore the state captured when this editor session opened."
 	)
 	revert:SetPoint("RIGHT", done, "LEFT", -4, 0)
+	revert:SetFrameLevel(footerLevel)
 end
 
 local function CreateWindowResizeGrip(window)
@@ -1641,6 +1687,9 @@ local function AttachWindowScripts(window)
 		if previewBadge then
 			previewBadge:StopMovingOrSizing()
 			previewBadge.resizing = false
+			-- Escape during a drag hides the window, and hidden frames run no mouse
+			-- scripts, so OnDragStop never fires to clear this.
+			previewBadge.dragging = false
 		end
 		FlushPendingChange()
 		EndOwnedColorPicker()
