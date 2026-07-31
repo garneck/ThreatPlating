@@ -2,7 +2,7 @@
 ## Title: Threat Plating
 ## Notes: Shows your threat lead or deficit on enemy NPC nameplates.
 ## Author: Threat Plating contributors
-## Version: 0.7.0
+## Version: 0.7.1
 ## X-Category: Combat
 ## X-Game-Version: TBC Anniversary
 ## SavedVariables: ThreatPlatingDB
@@ -12,5 +12,10 @@
 Init.lua
 Threat.lua
 Display.lua
+Role.lua
+NameplateView.lua
 Nameplates.lua
+Diagnostics.lua
 Config.lua
+ConfigControls.lua
+ConfigWindow.lua

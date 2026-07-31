@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1 - 2026-07-31
+
+- Split role detection, nameplate presentation, threat scheduling/lifecycle, and client probes
+  into focused runtime modules with explicit internal interfaces.
+- Split the configurator's preview mechanics, controls, and window integration so each module
+  owns one frame-lifecycle boundary without changing saved settings or user behavior.
+- Load the mocked runtime from the TOC during tests, keeping shipped-file order in one manifest.
+
 ## 0.7.0 - 2026-07-31
 
 - Report an exact tie with an unqueryable reference actor as `+0` instead of the player's entire

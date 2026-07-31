@@ -246,10 +246,7 @@ ThreatPlatingDB = {}
 local addon = {
 	testHarness = true,
 }
-assert(loadfile("Init.lua"))("ThreatPlating", addon)
-assert(loadfile("Threat.lua"))("ThreatPlating", addon)
-assert(loadfile("Display.lua"))("ThreatPlating", addon)
-assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
+assert(loadfile("tests/load_addon.lua"))()("ThreatPlating", addon, "Nameplates.lua")
 
 local eventFrame
 for _, frame in ipairs(mock.frames) do

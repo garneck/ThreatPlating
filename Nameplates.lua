@@ -1,5 +1,15 @@
 local _, addon = ...
 
+local Role = addon.Role
+local View = addon.NameplateView
+local GetNameplateUnitToken = View.GetUnitToken
+local ReadReferenceVisual = View.ReadReferenceVisual
+local ApplyOverlayLayout = View.ApplyOverlayLayout
+local ApplyBadgeWidthForRevision = View.ApplyBadgeWidthForRevision
+local ApplyOverlayStyle = View.ApplyOverlayStyle
+local CreateOverlay = View.CreateOverlay
+local DisplayValue = View.DisplayValue
+
 local POLL_INTERVAL = addon.updateInterval
 local EVENT_REFRESH_DELAY = addon.eventRefreshDelay
 local MAX_PLATES_PER_FRAME = 5
@@ -13,7 +23,6 @@ local UnitExists = UnitExists
 local UnitIsPlayer = UnitIsPlayer
 local UnitIsUnit = UnitIsUnit
 local UnitPlayerControlled = UnitPlayerControlled
-local BACKDROP = addon.BACKDROP
 
 local activeNameplates = {}
 local threatSources = {}
@@ -31,7 +40,6 @@ local urgentBatchReady = false
 local urgentBatchTail = 0
 local scanRevision = 0
 local eventFrame = CreateFrame("Frame")
-local referenceVisual = {}
 
 local IsFiniteNumber = addon.IsFiniteNumber
 
@@ -90,368 +98,12 @@ local function ClearScheduler()
 	end
 end
 
-local function GetDominantTalentTree()
-	if type(GetTalentTabInfo) ~= "function" then
-		return nil
-	end
-
-	local talentTabCount = 3
-	if type(GetNumTalentTabs) == "function" then
-		local ok, count = pcall(GetNumTalentTabs)
-		if not ok then
-			return nil
-		end
-		if count ~= nil then
-			if not IsFiniteNumber(count)
-				or count < 1
-				or count ~= math.floor(count)
-			then
-				return nil
-			end
-			talentTabCount = count
-		end
-	end
-
-	local dominantTree
-	local highestPoints = -1
-	local tied = false
-
-	-- Slot layout verified against pinned UI source d6a72ea3: the deprecation shim in
-	-- Blizzard_DeprecatedSpecialization returns
-	-- `specId, name, description, icon, pointsSpent, background, previewPointsSpent, isUnlocked`.
-	for index = 1, talentTabCount do
-		local ok, _, _, _, _, pointsSpent = pcall(GetTalentTabInfo, index)
-		if not ok then
-			return nil
-		end
-		if type(pointsSpent) == "number" then
-			if pointsSpent > highestPoints then
-				dominantTree = index
-				highestPoints = pointsSpent
-				tied = false
-			elseif pointsSpent == highestPoints then
-				tied = true
-			end
-		end
-	end
-
-	if tied or highestPoints <= 0 then
-		return nil
-	end
-
-	return dominantTree
-end
-
-local function GetActiveFormSpellID()
-	if type(GetShapeshiftForm) ~= "function"
-		or type(GetShapeshiftFormInfo) ~= "function"
-	then
-		return nil
-	end
-
-	local ok, formIndex = pcall(GetShapeshiftForm)
-	if not ok then
-		return nil
-	end
-	if not IsFiniteNumber(formIndex)
-		or formIndex <= 0
-		or formIndex ~= math.floor(formIndex)
-	then
-		return nil
-	end
-
-	-- Slot layout verified against pinned UI source d6a72ea3:
-	-- Blizzard_ActionBar/Shared/StanceBar.lua reads
-	-- `texture, isActive, isCastable, spellID = GetShapeshiftFormInfo(i)`.
-	local formOK, _, isActive, _, spellID = pcall(GetShapeshiftFormInfo, formIndex)
-	if not formOK then
-		return nil
-	end
-
-	-- Fail closed rather than hand a non-number to the spell-ID comparisons in
-	-- Threat.IsTankRole, which would silently grade every bear/defensive-stance
-	-- player as a non-tank.
-	if isActive
-		and IsFiniteNumber(spellID)
-		and spellID > 0
-		and spellID == math.floor(spellID)
-	then
-		return spellID
-	end
-
-	return nil
-end
-
-local function GetEffectiveTankSignal()
-	local playerUtil = _G.PlayerUtil
-	if type(playerUtil) ~= "table"
-		or type(playerUtil.IsPlayerEffectivelyTank) ~= "function"
-	then
-		return nil
-	end
-
-	local ok, isTank = pcall(playerUtil.IsPlayerEffectivelyTank)
-	if ok and type(isTank) == "boolean" then
-		return isTank
-	end
-
-	return nil
-end
-
-local function DetectPlayerTankRole()
-	local assignedRole = "NONE"
-	if type(UnitGroupRolesAssigned) == "function" then
-		local ok, role = pcall(UnitGroupRolesAssigned, "player")
-		if ok then
-			assignedRole = role or assignedRole
-		end
-	end
-
-	local isMainTank = false
-	if type(GetPartyAssignment) == "function" then
-		local ok, assigned = pcall(GetPartyAssignment, "MAINTANK", "player", true)
-		isMainTank = ok and assigned and true or false
-	end
-
-	local _, classToken = UnitClass("player")
-	local activeFormSpellID = GetActiveFormSpellID()
-
-	-- Threat.IsTankRole owns the whole precedence order (assignment, druid form,
-	-- warrior stance, effective-tank helper, legacy talents). Do not re-implement
-	-- any prefix of it here; RefreshPlayerRole runs on role/form/roster changes
-	-- only, never per plate, so the extra guarded lookups are free.
-	local effectiveTank = GetEffectiveTankSignal()
-	return Threat.IsTankRole(
-		classToken,
-		effectiveTank == nil and GetDominantTalentTree() or nil,
-		activeFormSpellID,
-		assignedRole,
-		isMainTank,
-		effectiveTank
-	)
-end
-
-function addon:RefreshPlayerRole()
-	local isTank = DetectPlayerTankRole()
-	if self.playerIsTank == isTank then
-		return
-	end
-
-	self.playerIsTank = isTank
-	QueueAllNameplates("poll")
-
-	if self.RefreshConfig then
-		self.RefreshConfig()
-	end
-end
 
 local function IsEligibleUnit(unit)
 	return UnitExists(unit)
 		and UnitCanAttack("player", unit)
 		and not UnitIsPlayer(unit)
 		and not UnitPlayerControlled(unit)
-end
-
-local function GetUnitFrame(nameplate)
-	return nameplate and (nameplate.UnitFrame or nameplate.unitFrame)
-end
-
--- NamePlateBaseMixin:SetUnit stores the token as `unitToken` and exposes GetUnit()
--- (pinned UI source d6a72ea3, Blizzard_NamePlates/Blizzard_NamePlateBase.lua). The
--- other two forms are compatibility fallbacks for replacement nameplate addons and
--- must never be the primary read.
-local function GetNameplateUnitToken(nameplate)
-	if not nameplate then
-		return nil
-	end
-
-	local unit = nameplate.unitToken
-	if not unit and type(nameplate.GetUnit) == "function" then
-		local ok, resolved = pcall(nameplate.GetUnit, nameplate)
-		if ok then
-			unit = resolved
-		end
-	end
-	if not unit then
-		unit = nameplate.namePlateUnitToken
-	end
-	if not unit then
-		local unitFrame = GetUnitFrame(nameplate)
-		unit = unitFrame and unitFrame.unit
-	end
-
-	if type(unit) ~= "string" then
-		return nil
-	end
-	return unit
-end
-
-local function GetLegacyHealthBar(unitFrame, nameplate)
-	if unitFrame then
-		if unitFrame.healthBar then
-			return unitFrame.healthBar
-		end
-		if unitFrame.Health then
-			return unitFrame.Health
-		end
-	end
-
-	if nameplate and nameplate.unitFramePlater and nameplate.unitFramePlater.healthBar then
-		return nameplate.unitFramePlater.healthBar
-	end
-
-	return nameplate
-end
-
-local function GetHealthBarAnchor(nameplate)
-	local unitFrame = GetUnitFrame(nameplate)
-	if unitFrame and unitFrame.HealthBarsContainer then
-		return unitFrame.HealthBarsContainer
-	end
-
-	return GetLegacyHealthBar(unitFrame, nameplate)
-end
-
-local function GetVisualHealthBar(nameplate)
-	local unitFrame = GetUnitFrame(nameplate)
-	if unitFrame
-		and unitFrame.HealthBarsContainer
-		and unitFrame.HealthBarsContainer.healthBar
-	then
-		return unitFrame.HealthBarsContainer.healthBar
-	end
-
-	return GetLegacyHealthBar(unitFrame, nameplate)
-end
-
-local function ApplyAnchor(overlay, nameplate)
-	local anchor = GetHealthBarAnchor(nameplate)
-	local db = addon.db
-
-	if not anchor
-		or (overlay.anchor == anchor and overlay.layoutRevision == addon.layoutRevision)
-	then
-		return
-	end
-
-	overlay.anchor = anchor
-	overlay.layoutRevision = addon.layoutRevision
-	overlay:ClearAllPoints()
-	overlay:SetPoint(db.anchorPoint, anchor, db.relativePoint, db.offsetX, db.offsetY)
-	overlay:SetFrameLevel(math.max(nameplate:GetFrameLevel(), anchor:GetFrameLevel()) + 20)
-end
-
-local function ApplyOverlayLayout(overlay, nameplate)
-	-- badgeHeight is a layout setting, so this gate follows layoutRevision only.
-	if overlay.heightLayoutRevision ~= addon.layoutRevision then
-		overlay.heightLayoutRevision = addon.layoutRevision
-		overlay:SetHeight(addon.db.badgeHeight)
-	end
-
-	ApplyAnchor(overlay, nameplate)
-end
-
-local function ApplyBadgeWidthForRevision(overlay)
-	addon:ApplyBadgeWidth(overlay, overlay.text)
-	overlay.displayLayoutRevision = addon.layoutRevision
-	overlay.displayStyleRevision = addon.styleRevision
-end
-
-local function ApplyOverlayStyle(overlay)
-	if overlay.styleRevision == addon.styleRevision then
-		return
-	end
-
-	overlay.styleRevision = addon.styleRevision
-	addon:ApplyBadgeStyle(overlay, overlay.text)
-end
-
-local function OnNameplateHide(nameplate)
-	local overlay = nameplate.ThreatPlatingOverlay
-	if overlay then
-		overlay:Hide()
-	end
-end
-
-local function CreateOverlay(nameplate)
-	local overlay = CreateFrame("Frame", nil, nameplate, "BackdropTemplate")
-	overlay:SetSize(addon.db.badgeWidth, addon.db.badgeHeight)
-	overlay:SetBackdrop(BACKDROP)
-	overlay:EnableMouse(false)
-	overlay:Hide()
-
-	local text = overlay:CreateFontString(nil, "OVERLAY")
-	text:SetPoint("CENTER", overlay, "CENTER", 0, 0)
-	overlay.text = text
-
-	ApplyOverlayStyle(overlay)
-	ApplyOverlayLayout(overlay, nameplate)
-
-	if not nameplate.ThreatPlatingHideHooked then
-		nameplate:HookScript("OnHide", OnNameplateHide)
-		nameplate.ThreatPlatingHideHooked = true
-	end
-
-	nameplate.ThreatPlatingOverlay = overlay
-	overlay.queueGeneration = 0
-	overlay.record = {
-		nameplate = nameplate,
-		overlay = overlay,
-	}
-	return overlay
-end
-
-local function DisplayValue(record, value, isLeader, safetyState)
-	local overlay = record.overlay
-	local text
-	if overlay.cachedDisplayValue == value
-		and overlay.cachedDisplayIsLeader == isLeader
-	then
-		text = overlay.cachedDisplayText
-	else
-		text = Threat.FormatDelta(value, isLeader)
-		overlay.cachedDisplayValue = value
-		overlay.cachedDisplayIsLeader = isLeader
-		overlay.cachedDisplayText = text
-	end
-
-	if not text then
-		overlay:Hide()
-		return
-	end
-
-	local layoutChanged = overlay.displayLayoutRevision ~= addon.layoutRevision
-	local styleChanged = overlay.displayStyleRevision ~= addon.styleRevision
-	local textChanged = false
-	ApplyOverlayLayout(overlay, record.nameplate)
-	ApplyOverlayStyle(overlay)
-
-	if overlay.displayText ~= text then
-		overlay.displayText = text
-		overlay.text:SetText(text)
-		textChanged = true
-	end
-
-	-- New text can change the measured string width, so it re-runs the width pass
-	-- without pretending the font or colors changed.
-	if layoutChanged or styleChanged or textChanged then
-		ApplyBadgeWidthForRevision(overlay)
-	end
-
-	if styleChanged
-		or overlay.colorSafetyState ~= safetyState
-	then
-		addon:ApplyThreatColor(
-			overlay,
-			overlay.text,
-			safetyState
-		)
-		overlay.colorSafetyState = safetyState
-	end
-
-	if not overlay:IsShown() then
-		overlay:Show()
-	end
 end
 
 local function ReleaseNameplate(unit, record)
@@ -857,171 +509,19 @@ function addon.HideAllNameplates()
 	end
 end
 
-local function FiniteOr(value, fallback)
-	if IsFiniteNumber(value) then
-		return value
-	end
-	return fallback
-end
-
-local TEXT_VISUAL_SUFFIXES = {
-	"Text",
-	"FontPath",
-	"FontSize",
-	"FontFlags",
-	"Red",
-	"Green",
-	"Blue",
-	"Alpha",
-	"OffsetX",
-	"OffsetY",
-}
-
--- referenceVisual is a single reused table, so every key a prefix can write has to be
--- cleared before a new plate is read. Otherwise a plate with no readable name is drawn
--- with the previous plate's font, offset, and color.
-local function ClearTextVisual(prefix)
-	for index = 1, #TEXT_VISUAL_SUFFIXES do
-		referenceVisual[prefix .. TEXT_VISUAL_SUFFIXES[index]] = nil
-	end
-end
-
-local function ReadFontStringVisual(fontString, prefix, healthBar)
-	if not fontString
-		or not fontString.GetText
-		or (fontString.IsShown and not fontString:IsShown())
-	then
-		return false
-	end
-
-	local text = fontString:GetText()
-	if type(text) ~= "string" or text == "" then
-		return false
-	end
-
-	referenceVisual[prefix .. "Text"] = text
-	local fontPath, fontSize, fontFlags
-	if fontString.GetFont then
-		fontPath, fontSize, fontFlags = fontString:GetFont()
-	end
-	referenceVisual[prefix .. "FontPath"] = fontPath
-	referenceVisual[prefix .. "FontSize"] = fontSize
-	referenceVisual[prefix .. "FontFlags"] = fontFlags
-
-	local red, green, blue, alpha = 1, 1, 1, 1
-	if fontString.GetTextColor then
-		red, green, blue, alpha = fontString:GetTextColor()
-	end
-	referenceVisual[prefix .. "Red"] = FiniteOr(red, 1)
-	referenceVisual[prefix .. "Green"] = FiniteOr(green, 1)
-	referenceVisual[prefix .. "Blue"] = FiniteOr(blue, 1)
-	referenceVisual[prefix .. "Alpha"] = FiniteOr(alpha, 1)
-
-	local textX, textY = fontString:GetCenter()
-	local barX, barY = healthBar:GetCenter()
-	if IsFiniteNumber(textX)
-		and IsFiniteNumber(textY)
-		and IsFiniteNumber(barX)
-		and IsFiniteNumber(barY)
-	then
-		referenceVisual[prefix .. "OffsetX"] = textX - barX
-		referenceVisual[prefix .. "OffsetY"] = textY - barY
-	else
-		referenceVisual[prefix .. "OffsetX"] = nil
-		referenceVisual[prefix .. "OffsetY"] = nil
-	end
-
-	return true
-end
-
-local function ReadStatusBarVisual(healthBar)
-	referenceVisual.texture = nil
-	if healthBar.GetStatusBarTexture then
-		local texture = healthBar:GetStatusBarTexture()
-		if texture and texture.GetTexture then
-			referenceVisual.texture = texture:GetTexture()
-		end
-	end
-
-	local red, green, blue, alpha = 0.72, 0.12, 0.10, 1
-	if healthBar.GetStatusBarColor then
-		red, green, blue, alpha = healthBar:GetStatusBarColor()
-	end
-	referenceVisual.red = FiniteOr(red, 0.72)
-	referenceVisual.green = FiniteOr(green, 0.12)
-	referenceVisual.blue = FiniteOr(blue, 0.10)
-	referenceVisual.alpha = FiniteOr(alpha, 1)
-
-	referenceVisual.fill = 0.70
-	if not healthBar.GetMinMaxValues or not healthBar.GetValue then
-		return
-	end
-
-	local minimum, maximum = healthBar:GetMinMaxValues()
-	local value = healthBar:GetValue()
-	if IsFiniteNumber(minimum)
-		and IsFiniteNumber(maximum)
-		and IsFiniteNumber(value)
-		and maximum > minimum
-	then
-		referenceVisual.fill = math.max(
-			0,
-			math.min(1, (value - minimum) / (maximum - minimum))
-		)
-	end
-end
-
-local function ReadHealthTextVisual(healthBar)
-	if ReadFontStringVisual(healthBar.Text, "health", healthBar) then
-		return
-	end
-	if ReadFontStringVisual(healthBar.LeftText, "health", healthBar) then
-		return
-	end
-	ReadFontStringVisual(healthBar.RightText, "health", healthBar)
-end
-
-local function PopulateReferenceVisual(record)
-	if not record
-		or record.overlay.unit == nil
-		or not record.nameplate:IsShown()
-		or GetNamePlateForUnit(record.overlay.unit) ~= record.nameplate
-	then
-		return false
-	end
-
-	local unitFrame = GetUnitFrame(record.nameplate)
-	local healthBar = GetVisualHealthBar(record.nameplate)
-	local width = healthBar and healthBar:GetWidth()
-	local height = healthBar and healthBar:GetHeight()
-	if not IsFiniteNumber(width)
-		or width <= 0
-		or not IsFiniteNumber(height)
-		or height <= 0
-	then
-		return false
-	end
-
-	referenceVisual.width = width
-	referenceVisual.height = height
-	ReadStatusBarVisual(healthBar)
-
-	ClearTextVisual("name")
-	ClearTextVisual("health")
-	if unitFrame then
-		ReadFontStringVisual(unitFrame.name, "name", healthBar)
-	end
-	ReadHealthTextVisual(healthBar)
-
-	return true
-end
 
 function addon.GetReferenceNameplateVisual()
 	local targetPlate = GetNamePlateForUnit("target")
 	if targetPlate then
 		local overlay = targetPlate.ThreatPlatingOverlay
-		if overlay and PopulateReferenceVisual(overlay.record) then
-			return referenceVisual
+		if overlay
+			and overlay.unit
+			and GetNamePlateForUnit(overlay.unit) == targetPlate
+		then
+			local visual = ReadReferenceVisual(overlay.record)
+			if visual then
+				return visual
+			end
 		end
 	end
 
@@ -1030,8 +530,9 @@ function addon.GetReferenceNameplateVisual()
 			and record.nameplate:IsShown()
 			and GetNamePlateForUnit(unit) == record.nameplate
 		then
-			if PopulateReferenceVisual(record) then
-				return referenceVisual
+			local visual = ReadReferenceVisual(record)
+			if visual then
+				return visual
 			end
 		end
 	end
@@ -1066,151 +567,6 @@ function addon.ApplyDisplaySettings(changeKind)
 			)
 		end
 	end
-end
-
-local function DescribeValue(value)
-	local valueType = type(value)
-	if valueType == "string" then
-		return string.format("%q", value)
-	end
-	if valueType == "number" or valueType == "boolean" or valueType == "nil" then
-		return tostring(value)
-	end
-	return "<" .. valueType .. ">"
-end
-
--- Receives pcall's results as varargs so the exact arity, including trailing nils, is
--- preserved. That arity is the whole point of the probe.
-local function DescribeReturns(ok, ...)
-	if not ok then
-		return "error: " .. tostring((...))
-	end
-
-	local count = select("#", ...)
-	if count == 0 then
-		return "(returned nothing)"
-	end
-
-	local description = ""
-	for index = 1, count do
-		if index > 1 then
-			description = description .. ", "
-		end
-		description = description .. index .. "=" .. DescribeValue((select(index, ...)))
-	end
-	return description
-end
-
-local function DescribeCall(fn, ...)
-	if type(fn) ~= "function" then
-		return "unavailable"
-	end
-	return DescribeReturns(pcall(fn, ...))
-end
-
--- The mocks reproduce the slot layouts this file assumes, so by construction they can
--- never disagree with it. This reports the raw tuples next to the addon's reading of
--- them, which turns a client-patch regression from "raid colors look inverted" into a
--- single glance. See the positional-API list in AGENTS.md.
-function addon.DescribeClientAPIs()
-	local lines = {}
-
-	local function Add(format, ...)
-		lines[#lines + 1] = string.format(format, ...)
-	end
-
-	Add("%s %s", addon.name, addon.version)
-	Add("GetBuildInfo(): %s", DescribeCall(GetBuildInfo))
-
-	-- Every probe names the API it probed even when it cannot call it, so a missing line
-	-- always means the probe itself changed rather than the client being quiet.
-	if type(GetShapeshiftForm) ~= "function" or type(GetShapeshiftFormInfo) ~= "function" then
-		Add("GetShapeshiftFormInfo: unavailable")
-	else
-		local formOK, formIndex = pcall(GetShapeshiftForm)
-		if not formOK then
-			Add("GetShapeshiftFormInfo: skipped, GetShapeshiftForm() errored")
-		elseif type(formIndex) ~= "number" or formIndex <= 0 then
-			Add(
-				"GetShapeshiftFormInfo: skipped, GetShapeshiftForm() = %s",
-				DescribeValue(formIndex)
-			)
-		else
-			Add(
-				"GetShapeshiftFormInfo(%d): %s",
-				formIndex,
-				DescribeCall(GetShapeshiftFormInfo, formIndex)
-			)
-		end
-	end
-	Add("  expected: 1=texture, 2=isActive, 3=isCastable, 4=spellID")
-	Add("  addon reads activeFormSpellID = %s", DescribeValue(GetActiveFormSpellID()))
-
-	if type(GetTalentTabInfo) ~= "function" then
-		Add("GetTalentTabInfo: unavailable")
-	else
-		local tabCount = 3
-		if type(GetNumTalentTabs) == "function" then
-			local ok, count = pcall(GetNumTalentTabs)
-			if ok and type(count) == "number" and count >= 1 then
-				tabCount = count
-			end
-		end
-		for index = 1, math.min(tabCount, 5) do
-			Add("GetTalentTabInfo(%d): %s", index, DescribeCall(GetTalentTabInfo, index))
-		end
-		Add("  expected: 5=pointsSpent")
-	end
-	Add("  addon reads dominantTalentTree = %s", DescribeValue(GetDominantTalentTree()))
-
-	local playerUtil = _G.PlayerUtil
-	if type(playerUtil) ~= "table" or type(playerUtil.IsPlayerEffectivelyTank) ~= "function" then
-		Add("PlayerUtil.IsPlayerEffectivelyTank: unavailable")
-	else
-		Add(
-			"PlayerUtil.IsPlayerEffectivelyTank(): %s",
-			DescribeCall(playerUtil.IsPlayerEffectivelyTank)
-		)
-	end
-	Add("  addon detects role = %s", addon.playerIsTank and "tank" or "non-tank")
-
-	local plates = GetNamePlates()
-	local nameplate = plates and plates[1]
-	if not nameplate then
-		Add("nameplate token: no visible plates")
-	else
-		Add(
-			"nameplate token: unitToken=%s GetUnit()=%s namePlateUnitToken=%s UnitFrame.unit=%s",
-			DescribeValue(nameplate.unitToken),
-			type(nameplate.GetUnit) == "function"
-				and DescribeCall(nameplate.GetUnit, nameplate)
-				or "unavailable",
-			DescribeValue(nameplate.namePlateUnitToken),
-			DescribeValue((GetUnitFrame(nameplate) or {}).unit)
-		)
-		Add("  addon resolves %s", DescribeValue(GetNameplateUnitToken(nameplate)))
-
-		local unitFrame = GetUnitFrame(nameplate)
-		Add(
-			"  anchor fields: HealthBarsContainer=%s healthBar=%s Health=%s",
-			DescribeValue(unitFrame ~= nil and unitFrame.HealthBarsContainer ~= nil),
-			DescribeValue(unitFrame ~= nil and unitFrame.healthBar ~= nil),
-			DescribeValue(unitFrame ~= nil and unitFrame.Health ~= nil)
-		)
-	end
-
-	if UnitExists("target") then
-		Add(
-			"UnitDetailedThreatSituation(player, target): %s",
-			DescribeCall(UnitDetailedThreatSituation, "player", "target")
-		)
-		Add("  expected: 1=isTanking, 2=status, 3=scaledPercentage, 4=rawPercentage, 5=rawThreat")
-		Add("  rawThreat is divided by 100 for display")
-	else
-		Add("UnitDetailedThreatSituation: no target")
-	end
-
-	return lines
 end
 
 local function RequestNameplateRefresh(unit)
@@ -1341,6 +697,10 @@ if addon.testHarness then
 		end,
 	}
 end
+
+Role.SetChangedCallback(function()
+	QueueAllNameplates("poll")
+end)
 
 RebuildThreatSources()
 addon:RefreshPlayerRole()

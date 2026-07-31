@@ -50,9 +50,16 @@ pinned source on every client update:
   snapshot/restore/reset API, and slash commands.
 - `Threat.lua`: pure threat math, safety-state selection, and compact number formatting.
 - `Display.lua`: shared palette, typography, backdrop, and badge rendering helpers.
-- `Nameplates.lua`: Blizzard API calls, roster cache, plate lifecycle, polling, and rendering.
-- `Config.lua`: saved layout editor, draggable/resizable preview, Settings category, and AddOn
-  Compartment integration.
+- `Role.lua`: guarded Blizzard role, form, stance, and talent signals; delegates precedence to
+  `Threat.IsTankRole`.
+- `NameplateView.lua`: pooled overlay creation, nameplate token/health-bar compatibility, badge
+  presentation, and configurator reference-visual capture.
+- `Nameplates.lua`: eligible-unit tracking, threat-source roster, query validation, lifecycle,
+  and bounded urgent/poll scheduling.
+- `Diagnostics.lua`: positional-API and nameplate-shape reporting for `/threatplating probe`.
+- `Config.lua`: configurator preview interactions and the private configurator interface.
+- `ConfigControls.lua`: settings control construction, sections, and scroll layout.
+- `ConfigWindow.lua`: editor window lifecycle, Settings category, and AddOn Compartment entry.
 - `tests/test_threat.lua`: Lua 5.1 tests for all pure logic.
 - `tests/test_database.lua`: isolated saved-variable migration and persistence coverage.
 - `tests/wow_mock.lua`: fresh mocked WoW globals and mutable runtime state per fixture.
@@ -68,8 +75,9 @@ client's template rules: `SetBackdrop` and friends error without `BackdropTempla
 template name is rejected outright.
 
 `ThreatPlating.toc` is the single source of truth for the shipped file set and its load order.
-`check.ps1` and `install.ps1` derive their lists from it; do not add a fourth copy. `install.ps1`
-reads the TOC of the revision it installs, not the working tree.
+`check.ps1`, `install.ps1`, and the mocked-runtime loader derive their file lists or execution
+order from it; do not add another copy. `install.ps1` reads the TOC of the revision it installs,
+not the working tree.
 
 The end of `tests/test_runtime.lua` runs a deterministic interaction fuzz pass. It exists because
 refresh-during-typing, resize-during-refresh, reset-during-picker, and hide-during-drag were all
@@ -79,11 +87,12 @@ visible frame.
 
 Keep calculations in `Threat.lua` so they remain runnable outside WoW; it must contain no frame or
 unit access, and its `IsFiniteNumber` stays a local copy so `tests/test_threat.lua` can load the
-file without `Init.lua`. Keep unit-token access, Blizzard nameplate lifecycle calls, and per-plate
-frame management in `Nameplates.lua`. `Display.lua` and `Config.lua` may call frame APIs, but only
-on frames handed to them or created by them.
+file without `Init.lua`. Keep unit-token compatibility and per-plate frame management in
+`NameplateView.lua`; keep Blizzard nameplate lifecycle calls in `Nameplates.lua`. `Display.lua`
+and the three `Config*.lua` modules may call frame APIs, but only on frames handed to them or
+created by them.
 
-Tank-role precedence lives only in `Threat.IsTankRole`. `Nameplates.lua` gathers the signals and
+Tank-role precedence lives only in `Threat.IsTankRole`. `Role.lua` gathers the signals and
 passes them in; it must not re-implement any prefix of that decision order.
 
 ## Reliability invariants
@@ -187,9 +196,10 @@ Use the project wrapper for every push from this checkout:
 ```
 
 The wrapper pushes the current branch and, only after the remote branch matches the pushed commit,
-replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directory. It installs the
-TOC and five runtime Lua files from the pushed commit, so uncommitted work is never deployed by a
-push. If a push is performed without the wrapper, immediately run `.\tools\install.ps1 -Revision
+replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directory. It installs
+the TOC and its declared runtime Lua files from the pushed commit, so uncommitted work is never
+deployed by a push. If a push is performed without the wrapper, immediately run
+`.\tools\install.ps1 -Revision
 HEAD`.
 
 The checkout must live outside `Interface\AddOns`. `install.ps1` refuses to install over itself,

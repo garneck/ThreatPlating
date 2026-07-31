@@ -27,7 +27,7 @@ player-controlled nameplates are excluded.
 
 ## Current status
 
-This repository contains a working `0.7.0` addon targeting TBC Anniversary client
+This repository contains a working `0.7.1` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:
@@ -157,8 +157,9 @@ test Lua file and keep the release, client build, interface, and pinned UI-sourc
 synchronized.
 
 `ThreatPlating.toc` is the single source of truth for which Lua files ship and in what order.
-`check.ps1` and `install.ps1` both derive their file lists from it, and `check.ps1` fails if a Lua
-file in the repository root is missing from the TOC or if a `tests/test_*.lua` suite is never run.
+The validation, mocked-runtime loader, and installer derive their file lists or execution order
+from it. `check.ps1` fails if a Lua file in the repository root is missing from the TOC or if a
+`tests/test_*.lua` suite is never run.
 
 See [AGENTS.md](AGENTS.md) for architecture and contribution invariants, and
 [docs/TESTING.md](docs/TESTING.md) for the in-game test matrix.

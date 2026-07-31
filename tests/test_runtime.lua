@@ -404,13 +404,10 @@ local units = mock.units
 local threat = mock.threat
 
 ThreatPlatingDB = {}
-local addon = {}
-assert(loadfile("Init.lua"))("ThreatPlating", addon)
-assert(loadfile("Threat.lua"))("ThreatPlating", addon)
-assert(loadfile("Display.lua"))("ThreatPlating", addon)
-assert(loadfile("Nameplates.lua"))("ThreatPlating", addon)
-addon.testHarness = true
-assert(loadfile("Config.lua"))("ThreatPlating", addon)
+local addon = {
+	testHarness = true,
+}
+assert(loadfile("tests/load_addon.lua"))()("ThreatPlating", addon)
 
 -- tools\check.ps1 owns cross-file version synchronization.
 assert(
