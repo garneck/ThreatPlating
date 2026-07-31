@@ -144,6 +144,14 @@ percentage. An unrelated outside actor that is neither inferable nor available t
 those unit tokens can remain invisible to addons. This is an API boundary, not something polling
 faster can solve.
 
+Update cadence is likewise server-bound. `UnitDetailedThreatSituation` reads a client-side cache
+that changes only when the server pushes a threat packet, and `UNIT_THREAT_LIST_UPDATE` fires
+exactly when such a packet arrives, so between two events every additional poll returns identical
+values. The observed push cadence on Classic-family servers is roughly one second and is not
+adjustable from the client. Threat Plating therefore reacts to the events (urgent batches within
+50 ms) and keeps the 0.10-second poll only to reconcile units the events miss; polling faster
+would spend CPU without ever producing a fresher number.
+
 The badge stays hidden when the API provides no meaningful threat data.
 
 ## Development
@@ -177,6 +185,8 @@ The implementation was checked against the extracted UI source for live build `2
 - [Details Tiny Threat's independent main-tank raw-percentage guard](https://github.com/Tercioo/Details-Damage-Meter/blob/1a78ee9cb034e925b1d4664f8a1b5751a27626ff/plugins/Details_TinyThreat/Details_TinyThreat.lua#L302)
 - [Blizzard threat-color behavior](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua)
 - [Classic aggro-threshold measurements](https://github.com/magey/classic-warrior/wiki/Threat-Mechanics#aggro-thresholds)
+- [`UNIT_THREAT_LIST_UPDATE` fires when the client receives server threat updates](https://warcraft.wiki.gg/wiki/UNIT_THREAT_LIST_UPDATE)
+- [TrinityCore's emulated one-second client threat-broadcast throttle (emulator corroboration, not Blizzard source)](https://github.com/TrinityCore/TrinityCore/blob/master/src/server/game/Combat/ThreatManager.h)
 - [Nameplate lifecycle events](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_APIDocumentationGenerated/NamePlateManagerDocumentation.lua)
 - [Nameplate unit-token field (`NamePlateBaseMixin:SetUnit` writes `unitToken`)](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_NamePlates/Blizzard_NamePlateBase.lua)
 - [`GetShapeshiftFormInfo` return slots (`texture, isActive, isCastable, spellID`)](https://github.com/Gethe/wow-ui-source/blob/d6a72ea3cb1942f84396b8cc34de9435fe5c7293/Interface/AddOns/Blizzard_ActionBar/Shared/StanceBar.lua)
