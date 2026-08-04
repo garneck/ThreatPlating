@@ -5,6 +5,7 @@
 ## Version: 0.8.0
 ## X-Category: Combat
 ## X-Game-Version: TBC Anniversary
+## X-Curse-Project-ID: 1639203
 ## SavedVariables: ThreatPlatingDB
 ## AddonCompartmentFunc: ThreatPlating_OnAddonCompartmentClick
 ## IconTexture: Interface\Icons\Ability_Warrior_Charge
