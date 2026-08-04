@@ -88,7 +88,7 @@ jobs:
             -o "$response_file" \
             -w '%{http_code}' \
             -H "x-api-token: $CF_API_KEY" \
-            --form-string "metadata=$(< "$metadata")" \
+            -F "metadata=@$metadata;type=application/json" \
             -F "file=@$archive;type=application/zip" \
             https://wow.curseforge.com/api/projects/1639203/upload-file)"
           jq . < "$response_file" || cat "$response_file"
