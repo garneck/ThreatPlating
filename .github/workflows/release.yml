@@ -5,6 +5,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to package and upload
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,6 +20,7 @@ env:
   CF_API_KEY: ${{ secrets.CF_API_KEY }}
   # Provided automatically by GitHub for the GitHub Release upload.
   GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 jobs:
   package:
@@ -23,6 +30,62 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Package and release
         uses: BigWigsMods/packager@v2
+        with:
+          # CurseForge's current API rejects the packager's streamed metadata
+          # multipart field. Build the archive and GitHub Release here, then use
+          # an explicit application/json metadata part below.
+          args: -L
+
+      - name: Upload to CurseForge
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          interface="$(sed -n 's/^## Interface: *//p' ThreatPlating.toc | tr -d '\r')"
+          if [[ ! "$interface" =~ ^([0-9]+)([0-9]{2})([0-9]{2})$ ]]; then
+            echo "Could not derive a game version from interface $interface." >&2
+            exit 1
+          fi
+
+          major="${BASH_REMATCH[1]}"
+          minor="$((10#${BASH_REMATCH[2]}))"
+          patch="$((10#${BASH_REMATCH[3]}))"
+          game_version="$major.$minor.$patch"
+
+          versions="$(curl --fail-with-body --silent --show-error \
+            -H "x-api-token: $CF_API_KEY" \
+            https://wow.curseforge.com/api/game/wow/versions)"
+          game_version_id="$(jq -er \
+            --arg version "$game_version" \
+            'map(select(.gameVersionTypeID == 73246 and .name == $version)) | max_by(.id) | .id' \
+            <<< "$versions")"
+
+          archive=".release/ThreatPlating-${RELEASE_TAG}-bcc.zip"
+          if [[ ! -f "$archive" ]]; then
+            echo "Packaged archive is missing: $archive" >&2
+            exit 1
+          fi
+
+          metadata="$RUNNER_TEMP/curseforge-metadata.json"
+          jq -n \
+            --rawfile changelog CHANGELOG.md \
+            --arg display_name "${RELEASE_TAG}-bcc" \
+            --argjson game_version_id "$game_version_id" \
+            '{
+              changelog: $changelog,
+              changelogType: "markdown",
+              displayName: $display_name,
+              gameVersions: [$game_version_id],
+              releaseType: "release"
+            }' > "$metadata"
+
+          response="$(curl --fail-with-body --silent --show-error \
+            -H "x-api-token: $CF_API_KEY" \
+            -F "metadata=<$metadata;type=application/json" \
+            -F "file=@$archive;type=application/zip" \
+            https://wow.curseforge.com/api/projects/1639203/upload-file)"
+          echo "$response" | jq .
