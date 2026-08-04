@@ -16,6 +16,7 @@ ignore:
   - .luacheckrc
   - .gitignore
   - AGENTS.md
+  - assets
   - docs
   - tests
   - tools
