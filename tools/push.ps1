@@ -46,10 +46,11 @@ if (-not [string]::IsNullOrWhiteSpace($Tag)) {
 		throw "Release tag $Tag does not match ThreatPlating.toc version $($versionMatch.Groups[1].Value); expected $expectedTag."
 	}
 
-	$existingTag = (& git -C $projectRoot tag --list $Tag).Trim()
+	$existingTagOutput = @(& git -C $projectRoot tag --list $Tag)
 	if ($LASTEXITCODE -ne 0) {
 		throw "Could not inspect local tag $Tag."
 	}
+	$existingTag = ($existingTagOutput -join "`n").Trim()
 	if ([string]::IsNullOrWhiteSpace($existingTag)) {
 		& git -C $projectRoot tag $Tag $revision
 		if ($LASTEXITCODE -ne 0) {
