@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-	[string] $Remote = "origin"
+	[string] $Remote = "origin",
+	[string] $Tag
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,7 +33,39 @@ if ($LASTEXITCODE -ne 0) {
 	throw "Could not resolve the current ThreatPlating revision."
 }
 
-& git -C $projectRoot push -u $Remote $branch
+$pushArguments = @("push", "--atomic", "-u", $Remote, $branch)
+if (-not [string]::IsNullOrWhiteSpace($Tag)) {
+	$tocContent = Get-Content -LiteralPath (Join-Path $projectRoot "ThreatPlating.toc") -Raw
+	$versionMatch = [regex]::Match($tocContent, '(?m)^## Version: ([^\r\n]+)\r?$')
+	if (-not $versionMatch.Success) {
+		throw "Could not read the release version from ThreatPlating.toc."
+	}
+
+	$expectedTag = "v$($versionMatch.Groups[1].Value)"
+	if ($Tag -ne $expectedTag) {
+		throw "Release tag $Tag does not match ThreatPlating.toc version $($versionMatch.Groups[1].Value); expected $expectedTag."
+	}
+
+	$existingTag = (& git -C $projectRoot tag --list $Tag).Trim()
+	if ($LASTEXITCODE -ne 0) {
+		throw "Could not inspect local tag $Tag."
+	}
+	if ([string]::IsNullOrWhiteSpace($existingTag)) {
+		& git -C $projectRoot tag $Tag $revision
+		if ($LASTEXITCODE -ne 0) {
+			throw "Could not create release tag $Tag."
+		}
+	}
+
+	$tagRevision = (& git -C $projectRoot rev-parse "${Tag}^{commit}").Trim()
+	if ($LASTEXITCODE -ne 0 -or $tagRevision -ne $revision) {
+		throw "Release tag $Tag must point at the current commit $revision."
+	}
+
+	$pushArguments += "refs/tags/${Tag}:refs/tags/${Tag}"
+}
+
+& git -C $projectRoot @pushArguments
 if ($LASTEXITCODE -ne 0) {
 	throw "Push failed; the WoW addon was not replaced."
 }
@@ -40,6 +73,18 @@ if ($LASTEXITCODE -ne 0) {
 $remoteRevision = (& git -C $projectRoot rev-parse "$Remote/$branch").Trim()
 if ($LASTEXITCODE -ne 0 -or $remoteRevision -ne $revision) {
 	throw "The remote branch does not match $revision; the WoW addon was not replaced."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($Tag)) {
+	$remoteTag = (& git -C $projectRoot ls-remote --tags $Remote "refs/tags/$Tag").Trim()
+	if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($remoteTag)) {
+		throw "The remote release tag $Tag was not created; the WoW addon was not replaced."
+	}
+
+	$remoteTagRevision = ($remoteTag -split '\s+')[0]
+	if ($remoteTagRevision -ne $revision) {
+		throw "Remote release tag $Tag does not point at $revision; the WoW addon was not replaced."
+	}
 }
 
 & (Join-Path $PSScriptRoot "install.ps1") -Revision $revision

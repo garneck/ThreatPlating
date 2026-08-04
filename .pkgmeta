@@ -1,0 +1,21 @@
+# BigWigs packager config: https://github.com/BigWigsMods/packager
+# The published addon folder must match the TOC base name.
+package-as: ThreatPlating
+
+# Threat Plating is dependency-free, so a second -nolib archive is unnecessary.
+enable-nolib-creation: no
+
+# Use the hand-written project changelog for GitHub and CurseForge release notes.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+# Development-only content that must not ship to players.
+ignore:
+  - .github
+  - .luacheckrc
+  - .gitignore
+  - AGENTS.md
+  - docs
+  - tests
+  - tools

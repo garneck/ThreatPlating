@@ -198,11 +198,11 @@ Use the project wrapper for every push from this checkout:
 ```
 
 The wrapper pushes the current branch and, only after the remote branch matches the pushed commit,
-replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directory. It installs
-the TOC and its declared runtime Lua files from the pushed commit, so uncommitted work is never
-deployed by a push. If a push is performed without the wrapper, immediately run
-`.\tools\install.ps1 -Revision
-HEAD`.
+replaces `ThreatPlating` in the local TBC Anniversary `Interface\AddOns` directory. Pass
+`-Tag vX.Y.Z` to atomically push the matching TOC-version release tag with `main`; this triggers
+the GitHub/CurseForge packaging workflow. It installs the TOC and its declared runtime Lua files
+from the pushed commit, so uncommitted work is never deployed by a push. If a push is performed
+without the wrapper, immediately run `.\tools\install.ps1 -Revision HEAD`.
 
 The checkout must live outside `Interface\AddOns`. `install.ps1` refuses to install over itself,
 but the guard exists because the install replaces the destination directory and then deletes the
@@ -217,3 +217,4 @@ place. Run `.\tools\link.ps1 -Remove` before publishing.
 - Commit and push completed work directly to `main`.
 - Do not create feature branches or pull requests.
 - Use `.\tools\push.ps1` for the push so the exact `main` commit is installed into WoW afterward.
+- For a release, use `.\tools\push.ps1 -Tag vX.Y.Z`; the tag must match `## Version` in the TOC.
