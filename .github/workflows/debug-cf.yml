@@ -53,6 +53,21 @@ jobs:
           done
 
           echo ""
+          echo "== same tokened request against other project ids =="
+          # A foreign real project should answer 403 (no permission) if and only
+          # if the metadata field parsed; a bogus id shows whether the project is
+          # resolved before or after field validation.
+          for pid in 1639203 61284 999999999; do
+            status="$(curl --silent --show-error -o resp.txt \
+              -w '%{http_code}' \
+              -H "x-api-token: $CF_API_KEY" \
+              -F "metadata=<metadata.json" -F "file=@dummy.zip" \
+              "https://wow.curseforge.com/api/projects/$pid/upload-file")" || true
+            echo "project $pid -> $status : $(head -c 160 resp.txt)"
+            rm -f resp.txt
+          done
+
+          echo ""
           echo "== prebuilt multipart body via --data-binary (guaranteed Content-Length), with token =="
           boundary="----ThreatPlatingBoundary$RANDOM$RANDOM"
           body="body.bin"
