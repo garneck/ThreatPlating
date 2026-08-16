@@ -1,0 +1,97 @@
+name: Debug CurseForge upload
+
+# Temporary diagnostic for the persistent HTTP 400 "Missing field `metadata`"
+# from the upload API. Uses a dummy zip on purpose: if any variant gets past
+# multipart parsing, the response changes to a package-validation error and
+# nothing can actually be published. Delete this workflow once resolved.
+on:
+  workflow_dispatch:
+
+env:
+  CF_API_KEY: ${{ secrets.CF_API_KEY }}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe upload API
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          curl --version | head -n 1
+
+          workdir="$RUNNER_TEMP/probe"
+          mkdir -p "$workdir"
+          cd "$workdir"
+
+          echo "probe" > probe.txt
+          zip -q dummy.zip probe.txt
+
+          echo "== game versions =="
+          versions="$(curl --silent --show-error \
+            -H "x-api-token: $CF_API_KEY" \
+            https://wow.curseforge.com/api/game/wow/versions)"
+          echo "entries named 2.5.6 (any type):"
+          jq -c 'map(select(.name == "2.5.6"))' <<< "$versions"
+          echo "last 10 entries of type 73246:"
+          jq -c 'map(select(.gameVersionTypeID == 73246)) | sort_by(.id) | .[-10:]' <<< "$versions"
+          game_version_id="$(jq -er \
+            'map(select(.gameVersionTypeID == 73246 and .name == "2.5.6")) | max_by(.id) | .id' \
+            <<< "$versions")"
+          echo "resolved id: $game_version_id"
+
+          jq -n --argjson id "$game_version_id" \
+            '{changelog: "probe", changelogType: "markdown", displayName: "probe", gameVersions: [$id], releaseType: "alpha"}' \
+            > metadata.json
+
+          attempt() {
+            local label="$1"
+            shift
+            echo ""
+            echo "== $label =="
+            local status
+            status="$(curl --silent --show-error \
+              -o response.json -D headers.txt \
+              -w '%{http_code} over http/%{http_version}' \
+              -H "x-api-token: $CF_API_KEY" \
+              "$@" \
+              https://wow.curseforge.com/api/projects/1639203/upload-file)" || true
+            echo "status: $status"
+            echo "response: $(cat response.json 2>/dev/null)"
+            grep -i -E '^(server|cf-ray|content-type|via|x-)' headers.txt | head -n 8 || true
+            rm -f response.json headers.txt
+          }
+
+          attempt "V0 baseline metadata=<file" \
+            -F "metadata=<metadata.json" -F "file=@dummy.zip"
+
+          attempt "V1 http1.1" \
+            --http1.1 \
+            -F "metadata=<metadata.json" -F "file=@dummy.zip"
+
+          attempt "V2 no expect header" \
+            -H "Expect:" \
+            -F "metadata=<metadata.json" -F "file=@dummy.zip"
+
+          attempt "V3 http1.1 + no expect" \
+            --http1.1 -H "Expect:" \
+            -F "metadata=<metadata.json" -F "file=@dummy.zip"
+
+          attempt "V4 form-string inline + http1.1 + no expect" \
+            --http1.1 -H "Expect:" \
+            --form-string "metadata=$(< metadata.json)" -F "file=@dummy.zip"
+
+          attempt "V5 browser UA + http1.1 + no expect" \
+            --http1.1 -H "Expect:" \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+            -F "metadata=<metadata.json" -F "file=@dummy.zip"
+
+          attempt "V6 bare POST without any form fields" \
+            -X POST
+
+          echo ""
+          echo "== V7 client-side shape check against httpbin (no token) =="
+          curl --silent --show-error \
+            -F "metadata=<metadata.json" -F "file=@dummy.zip" \
+            https://httpbin.org/post | jq '{form, files: (.files | keys), headers: {ct: .headers."Content-Type"}}'
