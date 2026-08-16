@@ -65,6 +65,17 @@ jobs:
           echo "Studios download API (api.curseforge.com) accepts it: HTTP $studios"
 
           echo ""
+          echo "== retry with whitespace-stripped token =="
+          trimmed="${CF_API_KEY//[$'\r\n\t ']/}"
+          echo "trimmed length: ${#trimmed}"
+          status="$(curl --silent --show-error -o resp.txt -w '%{http_code}' \
+            -H "x-api-token: $trimmed" \
+            -F "metadata=<metadata.json" -F "file=@dummy.zip" \
+            https://wow.curseforge.com/api/projects/1639203/upload-file)" || true
+          echo "upload with trimmed token -> $status : $(head -c 200 resp.txt)"
+          rm -f resp.txt
+
+          echo ""
           echo "== same tokened request against other project ids =="
           # A foreign real project should answer 403 (no permission) if and only
           # if the metadata field parsed; a bogus id shows whether the project is
