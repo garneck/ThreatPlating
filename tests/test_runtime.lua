@@ -580,12 +580,17 @@ assert(
 )
 units.pet = true
 
+-- A sub-100 percentage while tanking contradicts the reference semantics (the
+-- tanking player cannot be below 100% of their own threat) and appears for up
+-- to one threat push after a taunt or rip. It must not infer a phantom
+-- contender at 1000 units; the exact pet reading at 800 units still supplies
+-- a real observable deficit against the player's 500.
 threat["player:nameplate1"] = { true, 3, 50, 50, 50000 }
 Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
 Update(0.05)
 assert(
-	plate.ThreatPlatingOverlay.text.text == "-500",
-	"tanking state must not override a higher inferred raw threat"
+	plate.ThreatPlatingOverlay.text.text == "-300",
+	"tanking sub-100 percentage must yield the exact deficit, not an inferred one"
 )
 AssertColor(
 	plate.ThreatPlatingOverlay.text,
@@ -2087,5 +2092,17 @@ assert(
 	"turning smoothing off should settle an active transition immediately"
 )
 AssertPersistable("after transition tests")
+
+-- A taunt or rip can flip isTanking one threat push before the percentage pair
+-- refreshes. The stale sub-100 percentage must not manufacture a phantom deficit;
+-- the badge should read the lead over the exact observable contender instead.
+threat["player:nameplate1"] = { true, 3, 25, 25, 350000 }
+Dispatch("UNIT_THREAT_SITUATION_UPDATE", "nameplate1")
+Update(0.05)
+assert(
+	disabledPlate.ThreatPlatingOverlay.text.text == "+2.7k",
+	"a stale sub-100 tanking percentage must not manufacture a phantom deficit"
+)
+AssertPersistable("after aggro-flip staleness test")
 
 print("Nameplate runtime: smoke test passed")

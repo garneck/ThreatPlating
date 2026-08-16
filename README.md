@@ -29,7 +29,7 @@ newly shown badges, and diagnostic/configurator samples remain immediate.
 
 ## Current status
 
-This repository contains a working `0.8.0` addon targeting TBC Anniversary client
+This repository contains a working `0.8.1` addon targeting TBC Anniversary client
 `2.5.6.68941` (`## Interface: 20506`).
 
 Reliability is handled in two layers:

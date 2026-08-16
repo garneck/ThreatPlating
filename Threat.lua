@@ -173,8 +173,18 @@ function Threat.CalculateDelta(
 		-- actor only while actually tanking. A non-tanking player at exactly
 		-- 100% is tied with a distinct reference actor, so inference still
 		-- produces a zero lead rather than the player's entire threat total.
+		--
+		-- Below 100% while tanking contradicts the verified reference
+		-- semantics outright: the reference is the current tank, and the
+		-- tanking player cannot hold less than 100% of their own threat. The
+		-- client emits that pair for up to one threat push after a taunt or
+		-- rip flips isTanking, and inferring from it manufactures a phantom
+		-- contender at playerThreat / (stale% / 100) — a deficit that grows
+		-- with the player's own fresh threat. A genuinely leading actor is
+		-- still reported through the exact contender scan, which does not
+		-- depend on this inference.
 		local isSelfReference = isTanking == true
-			and (rawPercentage == 100
+			and (rawPercentage <= 100
 				or rawPercentage == TANK_RAW_PERCENTAGE_SENTINEL)
 		if not isSelfReference then
 			local inferredReferenceThreat = playerThreat * 100 / rawPercentage

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.1 - 2026-08-16
+
+- Stop a taunt or aggro rip from briefly reading as a deep deficit. The client can flip
+  `isTanking` up to one threat push before the percentage pair refreshes, and the stale sub-100
+  `rawPercentage` inferred a phantom contender at `playerThreat / (stale% / 100)` — a deficit that
+  grew with the player's own fresh threat. A sub-100 percentage while tanking now joins the
+  exactly-100 self-reference branch, so the badge reads the lead over the exact observable
+  contenders instead.
+- Keep every verified inference behavior unchanged: tanking percentages above 100 still infer the
+  second-place reference, the tanking 255 sentinel stays suppressed, non-tanking readings
+  (including sub-100 and the fixate 255 case) are untouched, and an exact observable leader still
+  produces a real deficit while tanking.
+- Add pure-math boundary coverage and a mocked-runtime aggro-flip regression for the stale tuple.
+
 ## 0.8.0 - 2026-07-31
 
 - Add an enabled-by-default Smooth number transitions setting that eases same-sign live counter

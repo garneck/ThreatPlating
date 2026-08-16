@@ -1,7 +1,7 @@
 local addonName, addon = ...
 
 addon.name = addonName
-addon.version = "0.8.0"
+addon.version = "0.8.1"
 addon.updateInterval = 0.10
 addon.eventRefreshDelay = 0.05
 addon.testModeUntil = 0

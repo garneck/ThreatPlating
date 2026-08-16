@@ -77,6 +77,42 @@ do
 end
 
 do
+	-- A taunt or rip flips isTanking up to one threat push before the
+	-- percentage pair refreshes. The stale sub-100 reading must join the
+	-- self-reference branch instead of inferring a phantom contender at
+	-- playerThreat / (stale% / 100), which read -10.5k here while the mob
+	-- was already on the player.
+	local delta, isLeader = Threat.CalculateDelta(350000, 25, 80000, true)
+	AssertNear(delta, 2700, "stale sub-100 tanking percentage is self-reference")
+	AssertEqual(isLeader, true, "stale sub-100 tanking leader state")
+	AssertEqual(Threat.FormatDelta(delta, isLeader), "+2.7k", "stale sub-100 tanking text")
+end
+
+do
+	-- The tanking sub-100 branch must stay continuous with the exactly-100
+	-- self-reference case it now shares.
+	local justBelow = Threat.FormatDelta(Threat.CalculateDelta(350000, 99.999999, 80000, true))
+	local exact = Threat.FormatDelta(Threat.CalculateDelta(350000, 100, 80000, true))
+	AssertEqual(justBelow, "+2.7k", "just below 100 while tanking")
+	AssertEqual(exact, "+2.7k", "exactly 100 while tanking")
+end
+
+do
+	-- Only the percentage inference is distrusted while tanking; an exact
+	-- observable leader must still produce a real deficit.
+	local delta, isLeader = Threat.CalculateDelta(350000, 25, 400000, true)
+	AssertNear(delta, -500, "exact leader survives tanking sub-100 suppression")
+	AssertEqual(isLeader, false, "exact leader above tanking sub-100 state")
+end
+
+do
+	-- A non-tanking sub-100 reading remains a meaningful reference.
+	local delta, isLeader = Threat.CalculateDelta(350000, 25, 80000, false)
+	AssertNear(delta, -10500, "non-tanking sub-100 still infers the reference")
+	AssertEqual(isLeader, false, "non-tanking sub-100 deficit state")
+end
+
+do
 	local delta, isLeader = Threat.CalculateDelta(500000, 100, nil, false)
 	AssertNear(delta, 0, "an exact non-tanking tie is a zero lead, not a full-threat lead")
 	AssertEqual(isLeader, true, "non-tanking tie leader state")

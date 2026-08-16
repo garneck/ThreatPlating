@@ -164,6 +164,12 @@ non-tanking player at exactly 100% is tied with a distinct actor and must read `
 player's whole threat total. Suppressing the inference on the percentage alone reintroduces a
 discontinuity where 99.999999%, 100%, and 100.000001% report `-1`, `+5k`, and `+1`.
 
+A percentage below 100 while `isTanking` is true contradicts the reference semantics — the tanking
+player cannot hold less than 100% of their own threat. The client emits that pair for up to one
+threat push after a taunt or rip flips `isTanking`, and inferring from it manufactures a phantom
+contender above the player. Treat tanking sub-100 like the exactly-100 self-reference; the exact
+contender scan still reports any genuinely leading observable actor while tanking.
+
 Treat a completely nil threat tuple as valid zero threat. Hide the badge if the player query fails,
 any required query is restricted or malformed, or the resulting table has no meaningful threat.
 
