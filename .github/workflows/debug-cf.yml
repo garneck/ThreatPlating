@@ -53,6 +53,18 @@ jobs:
           done
 
           echo ""
+          echo "== token shape and cross-API acceptance =="
+          echo "token length: ${#CF_API_KEY}"
+          case "$CF_API_KEY" in
+            \$2*) echo "shape: bcrypt-style (CurseForge for Studios key)" ;;
+            *-*-*-*-*) echo "shape: uuid-style (legacy authors token)" ;;
+            *) echo "shape: other" ;;
+          esac
+          studios="$(curl --silent -o /dev/null -w '%{http_code}' \
+            -H "x-api-key: $CF_API_KEY" https://api.curseforge.com/v1/games)" || true
+          echo "Studios download API (api.curseforge.com) accepts it: HTTP $studios"
+
+          echo ""
           echo "== same tokened request against other project ids =="
           # A foreign real project should answer 403 (no permission) if and only
           # if the metadata field parsed; a bogus id shows whether the project is
